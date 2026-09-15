@@ -491,8 +491,8 @@ export class NodeRedAPIClient {
     try {
       const flow = await this.getFlow(flowId);
       flow.disabled = false;
+      // PUT /flow updates the active configuration; no separate deploy request is needed.
       await this.updateFlow(flowId, flow);
-      await this.deployFlows({ type: 'flows' });
     } catch (error) {
       handleNodeRedError(error, `enableFlow(${flowId})`);
     }
@@ -506,7 +506,6 @@ export class NodeRedAPIClient {
       const flow = await this.getFlow(flowId);
       flow.disabled = true;
       await this.updateFlow(flowId, flow);
-      await this.deployFlows({ type: 'flows' });
     } catch (error) {
       handleNodeRedError(error, `disableFlow(${flowId})`);
     }

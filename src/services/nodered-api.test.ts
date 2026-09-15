@@ -333,13 +333,11 @@ describe('NodeRedAPIClient', () => {
     });
 
     describe('enableFlow', () => {
-      it('should enable a flow and deploy', async () => {
+      it('should enable a flow with a single active-configuration update', async () => {
         mockAxiosInstance.get.mockResolvedValueOnce({ data: mockDisabledFlow });
         mockAxiosInstance.put.mockResolvedValueOnce({
           data: { ...mockDisabledFlow, disabled: false },
         });
-        mockAxiosInstance.post.mockResolvedValueOnce({ data: {} });
-
         await client.enableFlow('flow-disabled');
 
         expect(mockAxiosInstance.get).toHaveBeenCalledWith('/flow/flow-disabled');
@@ -347,18 +345,14 @@ describe('NodeRedAPIClient', () => {
           '/flow/flow-disabled',
           expect.objectContaining({ disabled: false })
         );
-        expect(mockAxiosInstance.post).toHaveBeenCalledWith('/flows', null, {
-          headers: { 'Node-RED-Deployment-Type': 'flows' },
-        });
+        expect(mockAxiosInstance.post).not.toHaveBeenCalled();
       });
     });
 
     describe('disableFlow', () => {
-      it('should disable a flow and deploy', async () => {
+      it('should disable a flow with a single active-configuration update', async () => {
         mockAxiosInstance.get.mockResolvedValueOnce({ data: mockFlowTab });
         mockAxiosInstance.put.mockResolvedValueOnce({ data: { ...mockFlowTab, disabled: true } });
-        mockAxiosInstance.post.mockResolvedValueOnce({ data: {} });
-
         await client.disableFlow('flow-1');
 
         expect(mockAxiosInstance.get).toHaveBeenCalledWith('/flow/flow-1');
@@ -366,6 +360,7 @@ describe('NodeRedAPIClient', () => {
           '/flow/flow-1',
           expect.objectContaining({ disabled: true })
         );
+        expect(mockAxiosInstance.post).not.toHaveBeenCalled();
       });
     });
   });
