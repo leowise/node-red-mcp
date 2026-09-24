@@ -606,7 +606,9 @@ export class NodeRedAPIClient {
    */
   async getNodeTypes(): Promise<NodeRedNodeType[]> {
     try {
-      const response = await this.client.get('/nodes');
+      const response = await this.client.get('/nodes', {
+        headers: { Accept: 'application/json' },
+      });
       return response.data;
     } catch (error) {
       handleNodeRedError(error, 'getNodeTypes');
@@ -707,6 +709,23 @@ export class NodeRedAPIClient {
    * Get runtime information
    */
   async getRuntimeInfo(): Promise<NodeRedRuntimeInfo> {
+    try {
+      const response = await this.client.get('/diagnostics');
+      const diagnostics = response.data;
+      if (typeof diagnostics?.runtime?.version !== 'string') {
+        throw new Error('Node-RED /diagnostics response is missing runtime.version');
+      }
+      return {
+        version: diagnostics.runtime.version,
+        memory: diagnostics.nodejs?.memoryUsage,
+        flowFile: diagnostics.runtime.settings?.flowFile,
+        source: 'diagnostics',
+        diagnosticsAvailable: true,
+      };
+    } catch (error) {
+      if (!isUnsupportedEndpoint(error)) handleNodeRedError(error, 'getRuntimeInfo');
+    }
+
     try {
       const response = await this.client.get('/admin/info');
       return { ...response.data, source: 'admin-info', diagnosticsAvailable: true };
@@ -1015,7 +1034,9 @@ export class NodeRedAPIClient {
    */
   async getInstalledModules(): Promise<NodeRedModule[]> {
     try {
-      const response = await this.client.get('/nodes');
+      const response = await this.client.get('/nodes', {
+        headers: { Accept: 'application/json' },
+      });
       const nodes = response.data;
 
       // Group nodes by module

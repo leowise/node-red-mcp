@@ -289,14 +289,17 @@ describe('NodeRedAPIClient', () => {
 
     describe('updateFlow', () => {
       it('should update an existing flow', async () => {
-        mockAxiosInstance.put.mockResolvedValueOnce({ data: mockFlowTab });
+        const updatedFlow = { ...mockFlowTab, label: 'Updated Label' };
+        mockAxiosInstance.put.mockResolvedValueOnce({ data: {} });
+        mockAxiosInstance.get.mockResolvedValueOnce({ data: updatedFlow });
 
         const flow = await client.updateFlow('flow-1', { label: 'Updated Label' });
 
-        expect(flow).toEqual(mockFlowTab);
+        expect(flow).toEqual(updatedFlow);
         expect(mockAxiosInstance.put).toHaveBeenCalledWith('/flow/flow-1', {
           label: 'Updated Label',
         });
+        expect(mockAxiosInstance.get).toHaveBeenCalledWith('/flow/flow-1');
       });
     });
 
@@ -334,7 +337,9 @@ describe('NodeRedAPIClient', () => {
 
     describe('enableFlow', () => {
       it('should enable a flow with a single active-configuration update', async () => {
-        mockAxiosInstance.get.mockResolvedValueOnce({ data: mockDisabledFlow });
+        mockAxiosInstance.get
+          .mockResolvedValueOnce({ data: mockDisabledFlow })
+          .mockResolvedValueOnce({ data: { ...mockDisabledFlow, disabled: false } });
         mockAxiosInstance.put.mockResolvedValueOnce({
           data: { ...mockDisabledFlow, disabled: false },
         });
@@ -351,7 +356,9 @@ describe('NodeRedAPIClient', () => {
 
     describe('disableFlow', () => {
       it('should disable a flow with a single active-configuration update', async () => {
-        mockAxiosInstance.get.mockResolvedValueOnce({ data: mockFlowTab });
+        mockAxiosInstance.get
+          .mockResolvedValueOnce({ data: mockFlowTab })
+          .mockResolvedValueOnce({ data: { ...mockFlowTab, disabled: true } });
         mockAxiosInstance.put.mockResolvedValueOnce({ data: { ...mockFlowTab, disabled: true } });
         await client.disableFlow('flow-1');
 
@@ -373,7 +380,9 @@ describe('NodeRedAPIClient', () => {
         const nodeTypes = await client.getNodeTypes();
 
         expect(nodeTypes).toEqual(mockNodeTypes);
-        expect(mockAxiosInstance.get).toHaveBeenCalledWith('/nodes');
+        expect(mockAxiosInstance.get).toHaveBeenCalledWith('/nodes', {
+          headers: { Accept: 'application/json' },
+        });
       });
     });
 
@@ -557,6 +566,9 @@ describe('NodeRedAPIClient', () => {
         expect(Array.isArray(modules)).toBe(true);
         // Should not include core 'node-red' module
         expect(modules.find(m => m.name === 'node-red')).toBeUndefined();
+        expect(mockAxiosInstance.get).toHaveBeenCalledWith('/nodes', {
+          headers: { Accept: 'application/json' },
+        });
       });
     });
   });
@@ -574,13 +586,54 @@ describe('NodeRedAPIClient', () => {
     });
 
     describe('getRuntimeInfo', () => {
-      it('should return runtime info', async () => {
-        mockAxiosInstance.get.mockResolvedValueOnce({ data: mockRuntimeInfo });
+      it('should use the official diagnostics endpoint when available', async () => {
+        mockAxiosInstance.get.mockResolvedValueOnce({
+          data: {
+            runtime: { version: '3.1.15', settings: { flowFile: 'flows.json' } },
+            nodejs: { memoryUsage: mockRuntimeInfo.memory },
+          },
+        });
 
         const info = await client.getRuntimeInfo();
 
-        expect(info).toEqual(mockRuntimeInfo);
+        expect(info).toEqual({
+          version: '3.1.15',
+          memory: mockRuntimeInfo.memory,
+          flowFile: 'flows.json',
+          diagnosticsAvailable: true,
+          source: 'diagnostics',
+        });
+        expect(mockAxiosInstance.get).toHaveBeenCalledWith('/diagnostics');
+      });
+
+      it('should fall back to admin info when diagnostics is unavailable', async () => {
+        mockAxiosInstance.get
+          .mockRejectedValueOnce({ isAxiosError: true, response: { status: 404 } })
+          .mockResolvedValueOnce({ data: mockRuntimeInfo });
+
+        const info = await client.getRuntimeInfo();
+
+        expect(info).toEqual({
+          ...mockRuntimeInfo,
+          diagnosticsAvailable: true,
+          source: 'admin-info',
+        });
         expect(mockAxiosInstance.get).toHaveBeenCalledWith('/admin/info');
+      });
+
+      it('should fall back to settings when both diagnostics endpoints are unavailable', async () => {
+        mockAxiosInstance.get
+          .mockRejectedValueOnce({ isAxiosError: true, response: { status: 404 } })
+          .mockRejectedValueOnce({ isAxiosError: true, response: { status: 404 } })
+          .mockResolvedValueOnce({ data: mockSettings });
+
+        const info = await client.getRuntimeInfo();
+
+        expect(info).toEqual({
+          version: 'unknown',
+          diagnosticsAvailable: false,
+          source: 'settings',
+        });
       });
     });
 
@@ -617,7 +670,9 @@ describe('NodeRedAPIClient', () => {
 
     describe('getVersion', () => {
       it('should return Node-RED version', async () => {
-        mockAxiosInstance.get.mockResolvedValueOnce({ data: mockRuntimeInfo });
+        mockAxiosInstance.get.mockResolvedValueOnce({
+          data: { runtime: { version: mockRuntimeInfo.version } },
+        });
 
         const version = await client.getVersion();
 
@@ -807,7 +862,7 @@ describe('NodeRedAPIClient', () => {
       mockAxiosInstance.get
         .mockResolvedValueOnce({ data: mockSettings })
         .mockResolvedValueOnce({ data: mockFlows })
-        .mockResolvedValueOnce({ data: mockRuntimeInfo });
+        .mockResolvedValueOnce({ data: { runtime: { version: mockRuntimeInfo.version } } });
 
       const health = await client.healthCheck();
 
