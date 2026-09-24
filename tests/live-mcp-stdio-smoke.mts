@@ -1,7 +1,7 @@
 /**
  * Exercise the real stdio MCP transport against a Node-RED instance.
  *
- * Run with: node --import tsx tests/live-mcp-stdio-smoke.mts <url> <version> [--write]
+ * Run with: node --import tsx tests/live-mcp-stdio-smoke.mts <url> <version> [--write] [--built]
  * The optional write check is limited to a loopback Node-RED instance.
  */
 import assert from 'node:assert/strict';
@@ -14,10 +14,11 @@ import {
 } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const [url, expectedVersion, ...flags] = process.argv.slice(2);
-if (!url || !expectedVersion || flags.some(flag => flag !== '--write')) {
-  throw new Error('Usage: live-mcp-stdio-smoke.mts <url> <version> [--write]');
+if (!url || !expectedVersion || flags.some(flag => !['--write', '--built'].includes(flag))) {
+  throw new Error('Usage: live-mcp-stdio-smoke.mts <url> <version> [--write] [--built]');
 }
 const write = flags.includes('--write');
+const built = flags.includes('--built');
 if (write) {
   assert(
     ['localhost', '127.0.0.1', '::1'].includes(new URL(url).hostname),
@@ -28,7 +29,7 @@ if (write) {
 const client = new Client({ name: 'node-red-compat-smoke', version: '1.0.0' });
 const transport = new StdioClientTransport({
   command: process.execPath,
-  args: ['--import', 'tsx', 'src/index.ts'],
+  args: built ? ['dist/index.mjs'] : ['--import', 'tsx', 'src/index.ts'],
   cwd: process.cwd(),
   env: {
     ...getDefaultEnvironment(),
@@ -44,7 +45,7 @@ let stderr = '';
 transport.stderr?.on('data', chunk => {
   stderr += String(chunk).slice(0, 2000);
 });
-const report: Record<string, unknown> = { url, expectedVersion, write };
+const report: Record<string, unknown> = { url, expectedVersion, write, built };
 const nonce = randomUUID().slice(0, 8);
 const label = `MCP stdio compatibility smoke ${nonce}`;
 const updatedLabel = `${label} updated`;

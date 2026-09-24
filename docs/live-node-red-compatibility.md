@@ -31,8 +31,10 @@ node --import tsx tests/live-mcp-stdio-smoke.mts http://127.0.0.1:11822 2.2.3 --
 ```
 
 Omit `--write` for a read-only check. Both scripts restrict their write mode to
-a loopback Node-RED URL. `tests/live-compat-smoke.mts` exercises the server's
-tool implementation directly and is separate from these transport checks.
+a loopback Node-RED URL. Add `--built` to launch `dist/index.mjs` after a build
+instead of the TypeScript source; both transports passed this check in read-only
+mode. `tests/live-compat-smoke.mts` exercises the server's tool implementation
+directly and is separate from these transport checks.
 
 This is version spot-check coverage, not a guarantee for every minor release.
 Node-RED 0.15.3 and 5.x are outside the current target. These checks do not

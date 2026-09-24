@@ -1,7 +1,7 @@
 /**
  * Exercise the actual HTTP entry point with an SDK MCP client.
  *
- * Run with: node --import tsx tests/live-mcp-http-smoke.mts <url> <version> [--write]
+ * Run with: node --import tsx tests/live-mcp-http-smoke.mts <url> <version> [--write] [--built]
  * The optional write check is limited to a loopback Node-RED instance.
  */
 import assert from 'node:assert/strict';
@@ -13,10 +13,11 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 const [url, expectedVersion, ...flags] = process.argv.slice(2);
-if (!url || !expectedVersion || flags.some(flag => flag !== '--write')) {
-  throw new Error('Usage: live-mcp-http-smoke.mts <url> <version> [--write]');
+if (!url || !expectedVersion || flags.some(flag => !['--write', '--built'].includes(flag))) {
+  throw new Error('Usage: live-mcp-http-smoke.mts <url> <version> [--write] [--built]');
 }
 const write = flags.includes('--write');
+const built = flags.includes('--built');
 if (write) {
   assert(
     ['localhost', '127.0.0.1', '::1'].includes(new URL(url).hostname),
@@ -37,30 +38,34 @@ const base = `http://127.0.0.1:${port}`;
 const username = 'compat-smoke';
 const password = randomBytes(24).toString('hex');
 const authorization = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
-const server = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], {
-  cwd: process.cwd(),
-  env: {
-    ...process.env,
-    NODERED_URL: url,
-    NODERED_RETRIES: '0',
-    MCP_TRANSPORT: 'http',
-    MCP_READ_ONLY: write ? 'false' : 'true',
-    SSE_ENABLED: 'false',
-    CLAUDE_AUTH_REQUIRED: 'false',
-    HOST: '127.0.0.1',
-    PORT: String(port),
-    MCP_USERNAME: username,
-    MCP_PASSWORD: password,
-  },
-  stdio: ['ignore', 'pipe', 'pipe'],
-});
+const server = spawn(
+  process.execPath,
+  built ? ['dist/index.mjs'] : ['--import', 'tsx', 'src/index.ts'],
+  {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      NODERED_URL: url,
+      NODERED_RETRIES: '0',
+      MCP_TRANSPORT: 'http',
+      MCP_READ_ONLY: write ? 'false' : 'true',
+      SSE_ENABLED: 'false',
+      CLAUDE_AUTH_REQUIRED: 'false',
+      HOST: '127.0.0.1',
+      PORT: String(port),
+      MCP_USERNAME: username,
+      MCP_PASSWORD: password,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }
+);
 let serverOutput = '';
 for (const stream of [server.stdout, server.stderr]) {
   stream.on('data', chunk => {
     serverOutput = (serverOutput + String(chunk)).slice(-4000);
   });
 }
-const report: Record<string, unknown> = { url, expectedVersion, write };
+const report: Record<string, unknown> = { url, expectedVersion, write, built };
 const client = new Client({ name: 'node-red-http-compat-smoke', version: '1.0.0' });
 const transport = new StreamableHTTPClientTransport(new URL(`${base}/mcp`), {
   requestInit: { headers: { Authorization: authorization } },
