@@ -314,3 +314,8 @@ express-rate-limit reports it as `ERR_ERL_PERMISSIVE_TRUST_PROXY`. Trusting
 every hop means any client can spoof its address — and so its rate-limit bucket
 — just by sending its own `X-Forwarded-For` header. Prefer a hop count or an
 explicit trust list.
+
+## Live compatibility checks
+
+See [the Node-RED 1.x–4.x test matrix](docs/live-node-red-compatibility.md) for
+version spot checks, repeatable MCP client commands, and coverage limits.
