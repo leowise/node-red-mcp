@@ -432,7 +432,9 @@ export class ExpressApp {
         if (!session) {
           // Validate Bearer token if present
           const auth = req.headers.authorization;
-          let userId: string | undefined;
+          // Bind every authenticated session to the identity established by
+          // requireAuth, including Basic and JWT clients.
+          let userId = authReq.auth?.userId;
           if (auth?.startsWith('Bearer ')) {
             const token = auth.slice(7);
             const tokenData = this.oauthServer.validateToken(token);

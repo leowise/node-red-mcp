@@ -124,6 +124,20 @@ try {
   await client.connect(transport);
   connected = true;
   assert(transport.sessionId);
+  const sameSession = await fetch(`${base}/mcp`, {
+    method: 'POST',
+    headers: {
+      Authorization: authorization,
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+      'Mcp-Session-Id': transport.sessionId,
+    },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }),
+  });
+  assert.equal(sameSession.status, 200);
+  assert.equal(sameSession.headers.get('mcp-session-id'), transport.sessionId);
+  assert.equal(sameSession.headers.get('x-mcp-session-created'), null);
+  report.sessionReuse = 'passed';
   const tools = await client.listTools();
   const names = new Set(tools.tools.map(tool => tool.name));
   for (const name of ['get_flows', 'get_settings', 'get_runtime_info']) assert(names.has(name));
