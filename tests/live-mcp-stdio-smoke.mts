@@ -1,8 +1,8 @@
 /**
  * Exercise the real stdio MCP transport against a Node-RED instance.
  *
- * Run with: node --import tsx tests/live-mcp-stdio-smoke.mts <url> <version> [--write] [--built]
- * The optional write check is limited to a loopback Node-RED instance.
+ * Run with: node --import tsx tests/live-mcp-stdio-smoke.mts <url> <version> [--write] [--built] [--allow-remote]
+ * Remote writes require an explicit --allow-remote flag.
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -14,16 +14,19 @@ import {
 } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const [url, expectedVersion, ...flags] = process.argv.slice(2);
-if (!url || !expectedVersion || flags.some(flag => !['--write', '--built'].includes(flag))) {
-  throw new Error('Usage: live-mcp-stdio-smoke.mts <url> <version> [--write] [--built]');
+if (
+  !url ||
+  !expectedVersion ||
+  flags.some(flag => !['--write', '--built', '--allow-remote'].includes(flag))
+) {
+  throw new Error(
+    'Usage: live-mcp-stdio-smoke.mts <url> <version> [--write] [--built] [--allow-remote]'
+  );
 }
 const write = flags.includes('--write');
 const built = flags.includes('--built');
-if (write) {
-  assert(
-    ['localhost', '127.0.0.1', '::1'].includes(new URL(url).hostname),
-    'Stdio write smoke is limited to loopback Node-RED instances'
-  );
+if (write && !['localhost', '127.0.0.1', '::1'].includes(new URL(url).hostname)) {
+  assert(flags.includes('--allow-remote'), 'Remote stdio write smoke requires --allow-remote');
 }
 
 const client = new Client({ name: 'node-red-compat-smoke', version: '1.0.0' });
@@ -95,22 +98,30 @@ try {
   report.runtimeSource = runtime.source;
 
   const before = await tabs();
-  assert(before.length > 0);
   report.tabCount = before.length;
-  const first = await call('get_flow', { flowId: before[0].id });
-  assert.equal(first.id, before[0].id);
+  if (before.length > 0) {
+    const first = await call('get_flow', { flowId: before[0].id });
+    assert.equal(first.id, before[0].id);
+  }
 
   const modules = await call('get_installed_modules', { limit: 1 });
   assert.equal(typeof modules.total, 'number');
   report.nonCoreModuleCount = modules.total;
 
   const resources = await client.listResources();
-  const flowUri = `flow://${before[0].id}`;
-  assert(resources.resources.some(resource => resource.uri === flowUri));
-  const resource = await client.readResource({ uri: flowUri });
-  const resourceBody = JSON.parse(resource.contents[0].text);
-  assert.equal(resourceBody.flow.id, before[0].id);
-  report.flowResourceRead = true;
+  assert(resources.resources.some(resource => resource.uri === 'nodered://flows'));
+  if (before.length > 0) {
+    const flowUri = `flow://${before[0].id}`;
+    assert(resources.resources.some(resource => resource.uri === flowUri));
+    const resource = await client.readResource({ uri: flowUri });
+    const resourceBody = JSON.parse(resource.contents[0].text);
+    assert.equal(resourceBody.flow.id, before[0].id);
+    report.flowResourceRead = true;
+  } else {
+    const resource = await client.readResource({ uri: 'nodered://flows' });
+    assert(resource.contents[0]?.text);
+    report.flowCollectionRead = true;
+  }
 
   if (write) {
     const injectId = randomUUID().replaceAll('-', '').slice(0, 16);

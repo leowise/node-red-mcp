@@ -10,6 +10,7 @@ host loopback interface.
 | 1.3.5    | `127.0.0.1:11813`                        | Pass            | Pass             | `/settings`         |
 | 2.2.3    | `127.0.0.1:11822`                        | Pass            | Pass             | `/settings`         |
 | 3.1.15   | `127.0.0.1:11831`                        | Pass            | Pass             | `/diagnostics`      |
+| 3.1.15   | Rocky (`192.168.200.196:1880`)           | Pass            | Pass             | `/diagnostics`      |
 | 4.1.15   | `127.0.0.1:11841`                        | Pass            | Pass             | `/diagnostics`      |
 | 1.3.4    | Disposable Pluto (`192.168.200.29:1880`) | Read-only pass  | Read-only pass   | `/settings`         |
 
@@ -30,11 +31,12 @@ node --import tsx tests/live-mcp-http-smoke.mts http://127.0.0.1:11822 2.2.3 --w
 node --import tsx tests/live-mcp-stdio-smoke.mts http://127.0.0.1:11822 2.2.3 --write
 ```
 
-Omit `--write` for a read-only check. Both scripts restrict their write mode to
-a loopback Node-RED URL. Add `--built` to launch `dist/index.mjs` after a build
-instead of the TypeScript source; both transports passed this check in read-only
-mode. `tests/live-compat-smoke.mts` exercises the server's tool implementation
-directly and is separate from these transport checks.
+Omit `--write` for a read-only check. Remote write checks additionally require
+`--allow-remote`; local write checks remain loopback-only by default. Add
+`--built` to launch `dist/index.mjs` after a build instead of the TypeScript
+source. `tests/live-compat-smoke.mts` exercises the server's tool implementation
+directly and is separate from these transport checks. See
+[Rocky POC](rocky-poc.md) for the physical Pi setup and agent workflow result.
 
 This is version spot-check coverage, not a guarantee for every minor release.
 Node-RED 0.15.3 and 5.x are outside the current target. These checks do not
