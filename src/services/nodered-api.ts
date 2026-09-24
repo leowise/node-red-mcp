@@ -98,6 +98,14 @@ function containsExpected(actual: unknown, expected: unknown): boolean {
   return Object.is(actual, expected);
 }
 
+function flowMatchesUpdate(actual: NodeRedFlow, expected: Partial<NodeRedFlow>): boolean {
+  // GET /flow/:id returns tab data without its record type; the endpoint itself
+  // identifies the resource, so do not require this inferred field in read-back.
+  const comparable = { ...expected };
+  delete comparable.type;
+  return containsExpected(actual, comparable);
+}
+
 export class NodeRedAPIClient {
   private client: AxiosInstance;
   private config: NodeRedAPIConfig;
@@ -513,7 +521,7 @@ export class NodeRedAPIClient {
           { cause: error }
         );
       }
-      if (containsExpected(current, flowData)) return current;
+      if (flowMatchesUpdate(current, flowData)) return current;
       throw new Error(
         `Flow ${flowId} update was not confirmed: the PUT failed and read-back does not match the requested data. Inspect the current flow before retrying.`,
         { cause: error }
@@ -522,7 +530,7 @@ export class NodeRedAPIClient {
 
     try {
       const current = await this.getFlow(flowId);
-      if (!containsExpected(current, flowData)) {
+      if (!flowMatchesUpdate(current, flowData)) {
         throw new Error(
           `Flow ${flowId} PUT returned successfully, but read-back does not match the requested data. Inspect the flow before retrying.`
         );
