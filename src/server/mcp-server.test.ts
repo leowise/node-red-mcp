@@ -32,7 +32,7 @@ import { SSEHandler } from './sse-handler.js';
 
 // Create mock instances that will be returned by the mocked constructors
 const mockNodeRedClient = {
-  getFlows: vi.fn(),
+  getNormalizedFlows: vi.fn(),
   getFlowSummaries: vi.fn(),
   getFlow: vi.fn(),
   createFlow: vi.fn(),
@@ -62,8 +62,10 @@ const mockSSEHandler = {
 };
 
 // Mock NodeRedAPIClient with a class
-vi.mock('../services/nodered-api.js', () => {
+vi.mock('../services/nodered-api.js', async importOriginal => {
+  const original = await importOriginal<typeof import('../services/nodered-api.js')>();
   return {
+    NodeRedCapabilityUnavailableError: original.NodeRedCapabilityUnavailableError,
     NodeRedAPIClient: class {
       constructor() {
         return mockNodeRedClient;
@@ -139,7 +141,7 @@ describe('McpNodeRedServer', () => {
 
     // Reset mock implementation functions
     mockNodeRedClient.testConnection.mockResolvedValue(true);
-    mockNodeRedClient.getFlows.mockResolvedValue(mockFlows);
+    mockNodeRedClient.getNormalizedFlows.mockResolvedValue(mockFlows);
     mockNodeRedClient.getFlowSummaries.mockResolvedValue(mockFlowSummaries);
     mockNodeRedClient.getFlow.mockResolvedValue(mockFlowTab);
     mockNodeRedClient.createFlow.mockResolvedValue(mockCreatedFlow);
@@ -428,7 +430,7 @@ describe('McpNodeRedServer', () => {
     it('should return full flows when includeDetails is true', async () => {
       const result = await mcpServer.callTool('get_flows', { includeDetails: true });
 
-      expect(mockNodeRedClient.getFlows).toHaveBeenCalled();
+      expect(mockNodeRedClient.getNormalizedFlows).toHaveBeenCalled();
       expect(mockNodeRedClient.getFlowSummaries).not.toHaveBeenCalled();
     });
 
@@ -481,7 +483,7 @@ describe('McpNodeRedServer', () => {
       });
 
       expect(mockNodeRedClient.updateFlow).toHaveBeenCalledWith('flow-1', flowData);
-      expect(result.content[0].text).toContain('updated successfully');
+      expect(result.content[0].text).toContain('updated and verified by read-back');
     });
 
     it('should throw validation error when required params missing', async () => {
@@ -708,7 +710,7 @@ describe('McpNodeRedServer', () => {
     ];
 
     beforeEach(() => {
-      mockNodeRedClient.getFlows.mockResolvedValue(searchFlowsFixture);
+      mockNodeRedClient.getNormalizedFlows.mockResolvedValue(searchFlowsFixture);
     });
 
     it('should filter nodes by type (substring, case-insensitive)', async () => {
@@ -786,7 +788,7 @@ describe('McpNodeRedServer', () => {
         name: `Func ${i}`,
         z: 'tab-1',
       }));
-      mockNodeRedClient.getFlows.mockResolvedValue([
+      mockNodeRedClient.getNormalizedFlows.mockResolvedValue([
         { id: 'tab-1', type: 'tab', label: 'Big Flow', nodes: manyNodes },
       ]);
 
@@ -927,7 +929,7 @@ describe('McpNodeRedServer', () => {
       });
 
       expect(mockNodeRedClient.updateFlow).toHaveBeenCalledWith('flow-1', flowData);
-      expect(result.content[0].text).toContain('updated successfully');
+      expect(result.content[0].text).toContain('updated and verified by read-back');
     });
   });
 
@@ -1126,13 +1128,13 @@ describe('McpNodeRedServer', () => {
     });
 
     it('should handle errors in resource listing gracefully', async () => {
-      mockNodeRedClient.getFlows.mockRejectedValueOnce(new Error('Connection failed'));
+      mockNodeRedClient.getNormalizedFlows.mockRejectedValueOnce(new Error('Connection failed'));
 
       const result = await mcpServer.listResources();
 
       // Static collection resources are always present even when the API errors
       expect(result.resources.find((r: any) => r.uri === 'nodered://flows')).toBeDefined();
-      // Individual flow:// entries are absent when getFlows() fails
+      // Individual flow:// entries are absent when getNormalizedFlows() fails
       expect(result.resources.find((r: any) => r.uri.startsWith('flow://'))).toBeUndefined();
     });
   });

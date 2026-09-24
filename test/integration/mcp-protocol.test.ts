@@ -17,7 +17,7 @@ import {
 // Use vi.hoisted to ensure mock objects are created before vi.mock runs
 const { mockNodeRedClient, mockSSEHandler } = vi.hoisted(() => ({
   mockNodeRedClient: {
-    getFlows: vi.fn(),
+    getNormalizedFlows: vi.fn(),
     getFlowSummaries: vi.fn(),
     getFlow: vi.fn(),
     createFlow: vi.fn(),
@@ -79,7 +79,7 @@ describe('MCP Protocol Integration', () => {
     vi.clearAllMocks();
 
     // Set up mock return values
-    mockNodeRedClient.getFlows.mockResolvedValue(mockFlows);
+    mockNodeRedClient.getNormalizedFlows.mockResolvedValue(mockFlows);
     mockNodeRedClient.getFlowSummaries.mockResolvedValue([]);
     mockNodeRedClient.getFlow.mockResolvedValue(mockFlowTab);
     mockNodeRedClient.createFlow.mockResolvedValue(mockCreatedFlow);
@@ -129,7 +129,7 @@ describe('MCP Protocol Integration', () => {
 
         expect(result.content).toBeDefined();
         expect(result.content[0].type).toBe('text');
-        // Default behavior calls getFlowSummaries, not getFlows
+        // Default behavior calls getFlowSummaries, not getNormalizedFlows
         expect(mockNodeRedClient.getFlowSummaries).toHaveBeenCalled();
       });
 
@@ -138,7 +138,7 @@ describe('MCP Protocol Integration', () => {
 
         expect(result.content).toBeDefined();
         expect(result.content[0].type).toBe('text');
-        expect(mockNodeRedClient.getFlows).toHaveBeenCalled();
+        expect(mockNodeRedClient.getNormalizedFlows).toHaveBeenCalled();
       });
     });
 

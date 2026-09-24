@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { McpNodeRedServer } from './mcp-server.js';
 
 const mockNodeRedClient = {
-  getFlows: vi.fn(),
+  getNormalizedFlows: vi.fn(),
   getFlowSummaries: vi.fn(),
   getFlow: vi.fn(),
   createFlow: vi.fn(),
@@ -93,7 +93,7 @@ describe('Pagination + filters', () => {
 
     beforeEach(() => {
       mockNodeRedClient.getFlowSummaries.mockResolvedValue(summaries);
-      mockNodeRedClient.getFlows.mockResolvedValue(summaries);
+      mockNodeRedClient.getNormalizedFlows.mockResolvedValue(summaries);
     });
 
     it('returns a plain array when no pagination params (legacy shape)', async () => {
@@ -184,7 +184,7 @@ describe('Pagination + filters', () => {
     ];
 
     beforeEach(() => {
-      mockNodeRedClient.getFlows.mockResolvedValue([
+      mockNodeRedClient.getNormalizedFlows.mockResolvedValue([
         { id: 'tab-1', type: 'tab', label: 'Big', nodes: manyNodes },
         {
           id: 'tab-2',
