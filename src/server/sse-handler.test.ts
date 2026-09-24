@@ -911,6 +911,14 @@ describe('SSEHandler', () => {
   });
 
   describe('destroy', () => {
+    it('should clear both background timers', () => {
+      expect(vi.getTimerCount()).toBe(2);
+
+      handler.destroy();
+
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
     it('should clean up all resources', () => {
       const req = createMockRequest();
       const res = createMockResponse();

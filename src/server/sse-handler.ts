@@ -28,6 +28,7 @@ export class SSEHandler {
   private config: SSEConfig;
   private stats: SSEStats;
   private heartbeatInterval?: NodeJS.Timeout | undefined;
+  private healthMonitoringInterval?: NodeJS.Timeout | undefined;
 
   constructor(config: Partial<SSEConfig> = {}) {
     this.config = {
@@ -358,7 +359,8 @@ export class SSEHandler {
    * Start health monitoring
    */
   startHealthMonitoring(intervalMs = 60000): void {
-    setInterval(() => {
+    if (this.healthMonitoringInterval) clearInterval(this.healthMonitoringInterval);
+    this.healthMonitoringInterval = setInterval(() => {
       this.checkConnectionHealth();
     }, intervalMs);
   }
@@ -535,6 +537,10 @@ export class SSEHandler {
    */
   destroy(): void {
     this.stopHeartbeat();
+    if (this.healthMonitoringInterval) {
+      clearInterval(this.healthMonitoringInterval);
+      this.healthMonitoringInterval = undefined;
+    }
     this.clearAllConnections();
   }
 }
