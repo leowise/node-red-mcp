@@ -170,10 +170,15 @@ export class NodeErrorChecker {
     const includeWarnings = opts.includeWarnings ?? false;
     const timeoutMs = Math.min(opts.timeoutMs ?? 2000, 30000);
 
-    const [{ statuses, connected, authExpected, authConfirmed }, flows] = await Promise.all([
+    const [statusResult, flowResult] = await Promise.all([
       collectStatuses(this.apiClient.getCommsWsUrl(), timeoutMs),
-      this.apiClient.getFlows().catch((): Awaited<ReturnType<NodeRedAPIClient['getFlows']>> => []),
+      this.apiClient.getNormalizedFlows().then(
+        flows => ({ flows, available: true }),
+        () => ({ flows: [], available: false })
+      ),
     ]);
+    const { statuses, connected, authExpected, authConfirmed } = statusResult;
+    const flows = flowResult.flows;
 
     const nodeIndex = new Map<
       string,
@@ -223,7 +228,7 @@ export class NodeErrorChecker {
     return {
       errors,
       warnings,
-      statusesMayBeIncomplete: !connected || authIncomplete,
+      statusesMayBeIncomplete: !connected || authIncomplete || !flowResult.available,
     };
   }
 }

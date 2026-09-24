@@ -18,6 +18,14 @@ export interface NodeRedFlow {
   }[];
 }
 
+/** A single record returned by the flat Node-RED GET /flows endpoint. */
+export interface NodeRedFlowRecord {
+  id: string;
+  type?: string;
+  z?: string;
+  [key: string]: any;
+}
+
 /**
  * Lightweight flow summary for efficient token usage
  * Only includes meaningful properties to reduce token consumption
@@ -98,6 +106,7 @@ export interface NodeRedNodeType {
 }
 
 export interface NodeRedSettings {
+  version?: string;
   httpNodeRoot: string;
   httpAdminRoot: string;
   httpStatic?: string;
@@ -133,25 +142,27 @@ export interface NodeRedRuntimeInfo {
     total: number;
     count: number;
   };
-  nodes: Record<
+  nodes?: Record<
     string,
     {
       count: number;
     }
   >;
-  modules: Record<
+  modules?: Record<
     string,
     {
       version: string;
     }
   >;
-  memory: {
+  memory?: {
     rss: number;
     heapTotal: number;
     heapUsed: number;
     external: number;
   };
   flowFile?: string;
+  diagnosticsAvailable?: boolean;
+  source?: 'admin-info' | 'diagnostics' | 'settings';
 }
 
 export interface NodeRedFlowStatus {

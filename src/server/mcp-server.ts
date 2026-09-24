@@ -15,7 +15,10 @@ import {
 import { promptRegistry } from '../prompts/index.js';
 import { createEmbeddingProvider } from '../services/embedding-provider.js';
 import { NodeErrorChecker } from '../services/node-error-checker.js';
-import { NodeRedAPIClient } from '../services/nodered-api.js';
+import {
+  NodeRedAPIClient,
+  NodeRedCapabilityUnavailableError,
+} from '../services/nodered-api.js';
 import { SemanticFlowIndex } from '../services/semantic-index.js';
 import {
   McpServerConfig,
@@ -265,7 +268,11 @@ export class McpNodeRedServer {
       }
     );
 
-    this.nodeRedClient = new NodeRedAPIClient(this.config.nodeRed);
+    this.nodeRedClient = new NodeRedAPIClient({
+      baseURL: this.config.nodeRed.url,
+      timeout: this.config.nodeRed.timeout,
+      retries: this.config.nodeRed.retries,
+    });
     this.sseHandler = new SSEHandler(this.config.sse);
     this.semanticIndex = new SemanticFlowIndex(
       this.nodeRedClient,
@@ -502,7 +509,8 @@ export class McpNodeRedServer {
       },
       {
         name: 'update_flow',
-        description: 'Update an existing Node-RED flow',
+        description:
+          'Update an existing Node-RED flow and verify the persisted data by reading it back. If the write response is uncertain, inspect the read-back result before retrying.',
         annotations: { readOnlyHint: false },
         inputSchema: {
           type: 'object',
@@ -791,7 +799,7 @@ export class McpNodeRedServer {
       {
         name: 'get_runtime_info',
         description:
-          'Get Node-RED runtime information including version, installed node types, and memory usage',
+          'Get Node-RED runtime diagnostics when supported. Older versions fall back to basic version information from settings.',
         annotations: { readOnlyHint: true },
         inputSchema: { type: 'object', properties: {}, required: [] },
       },
@@ -881,7 +889,7 @@ export class McpNodeRedServer {
           const includeDetails = args?.includeDetails || false;
           const types = args?.types || ['tab', 'subflow'];
           let flowData: any[] = includeDetails
-            ? await this.nodeRedClient.getFlows()
+            ? await this.nodeRedClient.getNormalizedFlows()
             : await this.nodeRedClient.getFlowSummaries(types);
 
           const { sortBy, order } = parseSort(args, FLOW_SORT_KEYS);
@@ -938,7 +946,11 @@ export class McpNodeRedServer {
           if (!args?.flowData) throw new Error('Missing required parameter: flowData');
           if (args?.validate) validateFlowOrThrow(args.flowData);
           await this.nodeRedClient.updateFlow(flowId, args.flowData);
-          return { content: [{ type: 'text', text: `Flow ${flowId} updated successfully` }] };
+          return {
+            content: [
+              { type: 'text', text: `Flow ${flowId} updated and verified by read-back` },
+            ],
+          };
         }
 
         case 'enable_flow': {
@@ -1088,7 +1100,7 @@ export class McpNodeRedServer {
             );
           }
 
-          const flows = await this.nodeRedClient.getFlows();
+          const flows = await this.nodeRedClient.getNormalizedFlows();
           const typeFilterLower = typeFilter?.toLowerCase();
           const queryLower = query?.toLowerCase();
           const nodeTypePrefixLower = nodeTypePrefix?.toLowerCase();
@@ -1154,7 +1166,23 @@ export class McpNodeRedServer {
         }
 
         case 'get_flow_state': {
-          const status: any = await this.nodeRedClient.getFlowStatus();
+          let status: any;
+          try {
+            status = await this.nodeRedClient.getFlowStatus();
+          } catch (error) {
+            if (!(error instanceof NodeRedCapabilityUnavailableError)) throw error;
+            result = {
+              success: true,
+              data: {
+                available: false,
+                capability: error.capability,
+                endpoint: error.endpoint,
+                reason: 'This Node-RED version does not expose per-flow runtime state.',
+              },
+              timestamp,
+            };
+            break;
+          }
           if (isPaginated(args)) {
             const flows = Array.isArray(status?.flows) ? status.flows : [];
             const envelope = applyPagination(flows, args);
@@ -1257,7 +1285,7 @@ export class McpNodeRedServer {
     ];
 
     try {
-      const flows = await this.nodeRedClient.getFlows();
+      const flows = await this.nodeRedClient.getNormalizedFlows();
       for (const flow of flows) {
         resources.push({
           uri: `flow://${flow.id}`,

@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import {
   NodeRedFlow,
+  NodeRedFlowRecord,
   NodeRedFlowSummary,
   NodeRedNode,
   NodeRedNodeType,
@@ -26,6 +27,7 @@ import {
   getNodeRedAuthScope,
 } from '../utils/auth.js';
 import { handleNodeRedError } from '../utils/error-handling.js';
+import { normalizeFlowRecords } from '../utils/flow-normalizer.js';
 import { CircuitBreaker, retryWithCircuitBreaker, type RetryOptions } from '../utils/retry.js';
 
 export interface NodeRedAPIConfig {
@@ -64,6 +66,37 @@ export interface ModuleInstallResult {
 const SAFE_SEGMENT_RE = /^[A-Za-z0-9_.-]+$/;
 // Library-style path: same charset but slashes allowed as separators, no traversal
 const SAFE_LIBRARY_PATH_RE = /^[A-Za-z0-9_./-]+$/;
+
+export class NodeRedCapabilityUnavailableError extends Error {
+  constructor(public readonly capability: string, public readonly endpoint: string) {
+    super(`Node-RED capability '${capability}' is unavailable: ${endpoint} is not supported`);
+    this.name = 'NodeRedCapabilityUnavailableError';
+  }
+}
+
+function isUnsupportedEndpoint(error: unknown): boolean {
+  return (
+    axios.isAxiosError(error) &&
+    (error.response?.status === 404 || error.response?.status === 405)
+  );
+}
+
+function containsExpected(actual: unknown, expected: unknown): boolean {
+  if (Array.isArray(expected)) {
+    return (
+      Array.isArray(actual) &&
+      actual.length === expected.length &&
+      expected.every((value, index) => containsExpected(actual[index], value))
+    );
+  }
+  if (expected && typeof expected === 'object') {
+    if (!actual || typeof actual !== 'object' || Array.isArray(actual)) return false;
+    return Object.entries(expected).every(([key, value]) =>
+      containsExpected((actual as Record<string, unknown>)[key], value)
+    );
+  }
+  return Object.is(actual, expected);
+}
 
 export class NodeRedAPIClient {
   private client: AxiosInstance;
@@ -332,7 +365,7 @@ export class NodeRedAPIClient {
   // === Flow Management ===
   /**
    * Get all flows
-   */ async getFlows(): Promise<NodeRedFlow[]> {
+   */ async getFlows(): Promise<NodeRedFlowRecord[]> {
     try {
       const response = await this.client.get('/flows');
 
@@ -343,6 +376,7 @@ export class NodeRedAPIClient {
             'Node-RED returned HTML content instead of flow data. Check authentication and endpoint configuration.'
           );
         }
+        throw new Error('Node-RED returned an unexpected response for GET /flows; expected an array.');
       }
 
       return response.data;
@@ -350,6 +384,13 @@ export class NodeRedAPIClient {
       handleNodeRedError(error, 'getFlows');
     }
   } /**
+   * Get flow tabs and subflows with flat-export nodes attached.
+   */
+  async getNormalizedFlows(): Promise<NodeRedFlow[]> {
+    return normalizeFlowRecords(await this.getFlows());
+  }
+
+  /**
    * Get lightweight flow summaries (without node details for token efficiency)
    * Only returns specified flow types, filtering out system flows and config nodes
    * @param types - Array of flow types to include (default: ['tab', 'subflow'])
@@ -357,7 +398,7 @@ export class NodeRedAPIClient {
   async getFlowSummaries(types: string[] = ['tab', 'subflow']): Promise<NodeRedFlowSummary[]> {
     try {
       const [fullFlows, flowStatus] = await Promise.all([
-        this.getFlows(),
+        this.getNormalizedFlows(),
         this.getFlowStatus().catch(() => null), // Graceful fallback if flow status not available
       ]); // Filter flows based on requested types
       const userFlows = fullFlows.filter(flow => {
@@ -383,7 +424,16 @@ export class NodeRedAPIClient {
         const summary: NodeRedFlowSummary = {
           id: flow.id,
           disabled: flow.disabled || false,
-          status: flow.disabled ? 'inactive' : status?.state === 'stop' ? 'inactive' : 'active',
+          ...(flow.disabled
+            ? { status: 'inactive' as const }
+            : flowStatus
+              ? {
+                  status:
+                    flowStatus.state === 'stop' || status?.state === 'stop'
+                      ? ('inactive' as const)
+                      : ('active' as const),
+                }
+              : {}),
         };
 
         // Only add label if it exists and is not empty
@@ -448,12 +498,42 @@ export class NodeRedAPIClient {
    * Update existing flow
    */
   async updateFlow(flowId: string, flowData: Partial<NodeRedFlow>): Promise<NodeRedFlow> {
+    this.assertSafeSegment(flowId, 'flowId');
     try {
-      this.assertSafeSegment(flowId, 'flowId');
-      const response = await this.client.put(`/flow/${flowId}`, flowData);
-      return response.data;
+      await this.client.put(`/flow/${flowId}`, flowData);
     } catch (error) {
-      handleNodeRedError(error, `updateFlow(${flowId})`);
+      // A connection error can happen after Node-RED persisted the PUT. Read
+      // back before reporting failure so callers do not blindly repeat a write.
+      let current: NodeRedFlow;
+      try {
+        current = await this.getFlow(flowId);
+      } catch {
+        throw new Error(
+          `Flow ${flowId} update outcome is uncertain: PUT failed and read-back could not confirm persisted state. Inspect the flow before retrying.`,
+          { cause: error }
+        );
+      }
+      if (containsExpected(current, flowData)) return current;
+      throw new Error(
+        `Flow ${flowId} update was not confirmed: the PUT failed and read-back does not match the requested data. Inspect the current flow before retrying.`,
+        { cause: error }
+      );
+    }
+
+    try {
+      const current = await this.getFlow(flowId);
+      if (!containsExpected(current, flowData)) {
+        throw new Error(
+          `Flow ${flowId} PUT returned successfully, but read-back does not match the requested data. Inspect the flow before retrying.`
+        );
+      }
+      return current;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('read-back')) throw error;
+      throw new Error(
+        `Flow ${flowId} PUT returned successfully, but read-back failed. The update may be persisted; inspect the flow before retrying.`,
+        { cause: error }
+      );
     }
   }
 
@@ -621,7 +701,18 @@ export class NodeRedAPIClient {
   async getRuntimeInfo(): Promise<NodeRedRuntimeInfo> {
     try {
       const response = await this.client.get('/admin/info');
-      return response.data;
+      return { ...response.data, source: 'admin-info', diagnosticsAvailable: true };
+    } catch (error) {
+      if (!isUnsupportedEndpoint(error)) handleNodeRedError(error, 'getRuntimeInfo');
+    }
+
+    try {
+      const settings = await this.getSettings();
+      return {
+        version: settings.version ?? 'unknown',
+        diagnosticsAvailable: false,
+        source: 'settings',
+      };
     } catch (error) {
       handleNodeRedError(error, 'getRuntimeInfo');
     }
@@ -635,6 +726,9 @@ export class NodeRedAPIClient {
       const response = await this.client.get('/flows/state');
       return response.data;
     } catch (error) {
+      if (isUnsupportedEndpoint(error)) {
+        throw new NodeRedCapabilityUnavailableError('flow runtime state', '/flows/state');
+      }
       handleNodeRedError(error, 'getFlowStatus');
     }
   }
@@ -646,6 +740,9 @@ export class NodeRedAPIClient {
     try {
       await this.client.post('/flows/state', { state: 'start' });
     } catch (error) {
+      if (isUnsupportedEndpoint(error)) {
+        throw new NodeRedCapabilityUnavailableError('flow runtime control', '/flows/state');
+      }
       handleNodeRedError(error, 'startFlows');
     }
   }
@@ -657,6 +754,9 @@ export class NodeRedAPIClient {
     try {
       await this.client.post('/flows/state', { state: 'stop' });
     } catch (error) {
+      if (isUnsupportedEndpoint(error)) {
+        throw new NodeRedCapabilityUnavailableError('flow runtime control', '/flows/state');
+      }
       handleNodeRedError(error, 'stopFlows');
     }
   }
@@ -952,7 +1052,7 @@ export class NodeRedAPIClient {
     try {
       const [settings, flows, runtime] = await Promise.all([
         this.getSettings(),
-        this.getFlows(),
+        this.getNormalizedFlows(),
         this.getRuntimeInfo(),
       ]);
 
@@ -960,8 +1060,11 @@ export class NodeRedAPIClient {
         healthy: true,
         details: {
           version: runtime.version,
-          flowCount: flows.length,
-          nodeCount: Object.keys(runtime.nodes).length,
+          flowCount: flows.filter(flow => flow.type === 'tab').length,
+          nodeCount: flows.reduce((sum, flow) => sum + (flow.nodes?.length ?? 0), 0),
+          diagnosticsAvailable: runtime.diagnosticsAvailable ?? true,
+          runtimeInfoSource: runtime.source ?? 'admin-info',
+          runtimeNodeTypeCount: Object.keys(runtime.nodes ?? {}).length,
           memory: runtime.memory,
         },
       };
