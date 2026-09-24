@@ -7,6 +7,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-09-24
+
+### Validated
+
+- Exercised the built MCP server through HTTP and stdio clients against
+  disposable Node-RED 1.3.5, 2.2.3, 3.1.15, and 4.1.15 containers.
+- Exercised both transports against Node-RED 3.1.15 on Rocky, a Raspberry Pi 3B+
+  lab rig. An agent-created flow was updated, run once, disabled, and confirmed
+  present and disabled after a Node-RED service restart.
+- The rig owner separately confirmed that the example flow worked as expected.
+
+### Documentation and tests
+
+- Added the [live compatibility matrix](docs/live-node-red-compatibility.md),
+  [Rocky runbook](docs/rocky-poc.md), and a repeatable agent runtime POC script.
+- Updated transport smoke checks to handle an empty Node-RED instance and
+  require an explicit flag for remote writes.
+
 ## [Unreleased] - 2025-11-22
 
 ### Added

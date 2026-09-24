@@ -5,8 +5,10 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7%2B-blue.svg)](https://www.typescriptlang.org/)
 [![CI/CD](https://github.com/ziv-daniel/node-red-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ziv-daniel/node-red-mcp/actions)
 
-> A modern, production-ready Model Context Protocol (MCP) server for Node-RED
-> integration.
+> A Model Context Protocol (MCP) server for Node-RED integration, currently
+> validated as a single-user lab proof of concept. See the
+> [live compatibility checks](docs/live-node-red-compatibility.md) for tested
+> versions and coverage limits.
 
 ## 🌟 Features
 
@@ -28,8 +30,9 @@ Browse Node-RED state as structured resources: `nodered://flows`,
 
 ### 🔍 Semantic Search
 
-Embeddings-based search across flows and nodes via `semantic_search_flows`.
-Finds by meaning, not just keywords.
+`semantic_search_flows` ranks flows and nodes with BM25 keyword relevance by
+default. An external embeddings provider is available through server
+configuration, but the Rocky test did not exercise it.
 
 ### 🧠 Elicitation
 
@@ -59,6 +62,8 @@ nodes in error/warning state in real time.
 - **Node.js** 22+ (LTS recommended)
 - **Yarn** 4.x (automatically managed via Corepack)
 - **Docker** (optional, for containerized setup)
+- A reachable Node-RED instance (the MCP server and Node-RED may run on
+  different machines)
 
 ### Native Installation
 
@@ -68,6 +73,11 @@ cd node-red-mcp
 yarn install
 yarn build
 ```
+
+Configure your MCP client to launch `dist/index.mjs` with Node.js 22+ and set
+`NODERED_URL` to the Node-RED admin API address. For example, the MCP server can
+run on a Windows host while Node-RED 3.1.15 runs on a Raspberry Pi. Node-RED's
+own Node.js version does not set the MCP server's Node.js requirement.
 
 ### Docker
 
@@ -95,7 +105,7 @@ docker run -e NODERED_URL=http://your-nodered:1880 \
 | `delete_flow`           | Delete a flow (dry-run by default) | `flowId`, `dryRun?`, `confirm?`                  |
 | `validate_flow`         | Validate flow structure            | `flowId`                                         |
 | `search_flows`          | Search nodes by type/name/property | `type?`, `query?`, `flowId?`                     |
-| `semantic_search_flows` | Embeddings-based semantic search   | `query`, `scope?`, `topK?`, `refresh?`           |
+| `semantic_search_flows` | Ranked flow and node search        | `query`, `scope?`, `topK?`, `refresh?`           |
 
 ### Context Variables
 
@@ -167,7 +177,7 @@ Built-in prompt templates for common tasks:
 
 | Mode                | Env Var               | Endpoint          | Use Case                                    |
 | ------------------- | --------------------- | ----------------- | ------------------------------------------- |
-| **Streamable HTTP** | `MCP_TRANSPORT=http`  | `POST /mcp`       | Production, remote agents                   |
+| **Streamable HTTP** | `MCP_TRANSPORT=http`  | `POST /mcp`       | Network MCP clients                         |
 | **Stdio**           | `MCP_TRANSPORT=stdio` | stdin/stdout      | Claude Desktop                              |
 | **Both**            | `MCP_TRANSPORT=both`  | both of the above | Serving HTTP while also attached over stdio |
 
@@ -270,25 +280,24 @@ credential pair sent independently of the Bearer exchange.
 
 ## ⚙️ Environment Variables
 
-| Variable                      | Required | Default                   | Description                                                                                                                                                     |
-| ----------------------------- | -------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NODERED_URL`                 | Yes      | —                         | URL of your Node-RED instance                                                                                                                                   |
-| `NODERED_USERNAME`            | No       | —                         | Node-RED admin username, or a reverse-proxy Basic-auth username — see [Node-RED Authentication](#node-red-authentication)                                       |
-| `NODERED_PASSWORD`            | No       | —                         | Node-RED admin password, or a reverse-proxy Basic-auth password — see [Node-RED Authentication](#node-red-authentication)                                       |
-| `NODERED_ADMIN_AUTH_ENABLED`  | No       | `false`                   | Set `true` when `NODERED_USERNAME`/`PASSWORD` are Node-RED's _own_ `adminAuth` credentials, to exchange them for a Bearer token instead of sending static Basic |
-| `NODERED_API_TOKEN`           | No       | —                         | Pre-issued Node-RED bearer token; takes precedence over username/password                                                                                       |
-| `NODERED_AUTH_SCOPE`          | No       | `*`                       | Scope requested in the `/auth/token` exchange; defaults to `read` under `MCP_READ_ONLY` — set explicitly for a narrower `adminAuth` permission                  |
-| `MCP_TRANSPORT`               | No       | `stdio`                   | `stdio`, `http`, or `both`. The published image bakes in `stdio`; set `http` to serve the HTTP endpoint and let the healthcheck pass                            |
-| `HTTP_ENABLED`                | No       | `false`                   | Serve HTTP alongside `MCP_TRANSPORT=stdio`. Ignored when transport is `http`/`both` — it can turn HTTP on, never off                                            |
-| `MCP_USERNAME`                | No       | —                         | MCP server auth username                                                                                                                                        |
-| `MCP_PASSWORD`                | No       | —                         | MCP server auth password                                                                                                                                        |
-| `MCP_READ_ONLY`               | No       | `false`                   | Set `true` to hide write tools and reject write calls — see [Read-Only Mode](#-read-only-mode)                                                                  |
-| `HOST`                        | No       | `0.0.0.0`                 | Bind address                                                                                                                                                    |
-| `PORT`                        | No       | `3000`                    | Listen port                                                                                                                                                     |
-| `LOG_LEVEL`                   | No       | `info`                    | `debug`, `info`, `warn`, `error`                                                                                                                                |
-| `NODERED_REJECT_UNAUTHORIZED` | No       | `true`                    | Set `false` to allow self-signed TLS                                                                                                                            |
-| `TRUST_PROXY`                 | No       | `false`                   | Reverse proxy hops to trust — see [Running Behind a Reverse Proxy](#running-behind-a-reverse-proxy)                                                             |
-| `EMBEDDING_MODEL`             | No       | `Xenova/all-MiniLM-L6-v2` | Model for semantic search                                                                                                                                       |
+| Variable                      | Required | Default                 | Description                                                                                                                                                     |
+| ----------------------------- | -------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NODERED_URL`                 | No       | `http://localhost:1880` | URL of your Node-RED instance; set this for any other host                                                                                                      |
+| `NODERED_USERNAME`            | No       | —                       | Node-RED admin username, or a reverse-proxy Basic-auth username — see [Node-RED Authentication](#node-red-authentication)                                       |
+| `NODERED_PASSWORD`            | No       | —                       | Node-RED admin password, or a reverse-proxy Basic-auth password — see [Node-RED Authentication](#node-red-authentication)                                       |
+| `NODERED_ADMIN_AUTH_ENABLED`  | No       | `false`                 | Set `true` when `NODERED_USERNAME`/`PASSWORD` are Node-RED's _own_ `adminAuth` credentials, to exchange them for a Bearer token instead of sending static Basic |
+| `NODERED_API_TOKEN`           | No       | —                       | Pre-issued Node-RED bearer token; takes precedence over username/password                                                                                       |
+| `NODERED_AUTH_SCOPE`          | No       | `*`                     | Scope requested in the `/auth/token` exchange; defaults to `read` under `MCP_READ_ONLY` — set explicitly for a narrower `adminAuth` permission                  |
+| `MCP_TRANSPORT`               | No       | `stdio`                 | `stdio`, `http`, or `both`. The published image bakes in `stdio`; set `http` to serve the HTTP endpoint and let the healthcheck pass                            |
+| `HTTP_ENABLED`                | No       | `false`                 | Serve HTTP alongside `MCP_TRANSPORT=stdio`. Ignored when transport is `http`/`both` — it can turn HTTP on, never off                                            |
+| `MCP_USERNAME`                | No       | —                       | MCP server auth username                                                                                                                                        |
+| `MCP_PASSWORD`                | No       | —                       | MCP server auth password                                                                                                                                        |
+| `MCP_READ_ONLY`               | No       | `false`                 | Set `true` to hide write tools and reject write calls — see [Read-Only Mode](#-read-only-mode)                                                                  |
+| `HOST`                        | No       | `0.0.0.0`               | Bind address                                                                                                                                                    |
+| `PORT`                        | No       | `3000`                  | Listen port                                                                                                                                                     |
+| `LOG_LEVEL`                   | No       | `info`                  | `debug`, `info`, `warn`, `error`                                                                                                                                |
+| `NODERED_REJECT_UNAUTHORIZED` | No       | `true`                  | Set `false` to allow self-signed TLS                                                                                                                            |
+| `TRUST_PROXY`                 | No       | `false`                 | Reverse proxy hops to trust — see [Running Behind a Reverse Proxy](#running-behind-a-reverse-proxy)                                                             |
 
 ### Running Behind a Reverse Proxy
 
@@ -318,4 +327,7 @@ explicit trust list.
 ## Live compatibility checks
 
 See [the Node-RED 1.x–4.x test matrix](docs/live-node-red-compatibility.md) for
-version spot checks, repeatable MCP client commands, and coverage limits.
+version spot checks, repeatable MCP client commands, and coverage limits. The
+[Rocky POC record](docs/rocky-poc.md) documents the Raspberry Pi service and the
+agent-created flow that was run and read back after restart. LM Studio and other
+local LLM clients have not yet been validated in this repository.

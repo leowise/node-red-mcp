@@ -11,14 +11,23 @@ dedicated user directory is `/home/leowise/.node-red-poc`. The enabled
 `nodered-poc.service` starts the instance on port 1880. The pre-existing
 `nodered.service` was disabled because its Node-RED 4.0.9 installation could not
 start with the system's Node.js 16; its files were left intact. Node.js 20 was
-tried side by side but was incompatible with Buster's C++ runtime libraries.
+tried side by side but was incompatible with Buster's C++ runtime libraries. The
+MCP server itself runs on the host with Node.js 22+; the Pi's Node.js 18
+installation is used only for its Node-RED service.
 
 Useful service checks on Rocky:
 
 ```sh
 sudo systemctl status nodered-poc.service
 sudo journalctl -u nodered-poc.service -n 100 --no-pager
+sudo systemctl restart nodered-poc.service
 ```
+
+The service unit is `/etc/systemd/system/nodered-poc.service`. It runs as
+`leowise` with `--userDir /home/leowise/.node-red-poc --port 1880` and a 256 MiB
+V8 old-space limit. Keep the old service disabled to avoid competing for
+port 1880. The Node-RED editor and admin API are accessible at
+`http://192.168.200.196:1880`; this test rig has no admin authentication.
 
 From the repository root on the MCP host, the built-server transport checks
 passed in both read-only and write modes:
@@ -35,7 +44,9 @@ tab briefly, and disabled it. Rocky's Node-RED journal showed the one-shot
 message emitted from the updated Function with `revision: 2`. After a service
 restart, API read-back confirmed the example tab remained disabled. Its label is
 `Rocky MCP Agent POC 1e29174a`, and its flow ID is `e34ef3062524840c`. It has no
-GPIO or MQTT nodes.
+GPIO or MQTT nodes. The rig owner subsequently reported that the flow worked
+correctly in their own check; that is separate from the automated MCP and
+runtime-log checks above.
 
 To run another isolated example with a new label:
 
@@ -43,4 +54,6 @@ To run another isolated example with a new label:
 node --import tsx tests/live-agent-runtime-poc.mts http://192.168.200.196:1880 --allow-remote
 ```
 
-The example script leaves its resulting tab disabled for inspection.
+The example script leaves its resulting tab disabled for inspection. This
+validation did not exercise LM Studio or another local LLM client; the test
+client was the MCP SDK.

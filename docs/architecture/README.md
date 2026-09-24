@@ -4,6 +4,12 @@ This directory contains Architecture Decision Records (ADRs) for the MCP
 Node-RED Server project. ADRs document significant architectural decisions made
 throughout the project's evolution.
 
+These ADRs record historical decisions and proposals. For the currently tested
+single-user POC, start with the repository [README](../../README.md),
+[live compatibility checks](../live-node-red-compatibility.md), and
+[Rocky runbook](../rocky-poc.md). Proposed ADRs are not claims that their
+features have been implemented or validated.
+
 ## What are ADRs?
 
 Architecture Decision Records capture important architectural decisions along
@@ -32,9 +38,6 @@ We follow the standard ADR format:
 | [001](./001-mcp-transport-selection.md)             | MCP Transport Layer Selection                | Accepted | 2024-12-17 |
 | [002](./002-typescript-build-system.md)             | TypeScript Build System with tsup            | Accepted | 2024-12-17 |
 | [003](./003-testing-strategy.md)                    | Comprehensive Testing Strategy               | Accepted | 2024-12-17 |
-| [004](./004-observability-stack.md)                 | Observability Stack Selection                | Accepted | 2024-12-17 |
-| [005](./005-security-architecture.md)               | Security Architecture and Validation         | Accepted | 2024-12-17 |
-| [006](./006-containerization-strategy.md)           | Containerization and Deployment Strategy     | Accepted | 2024-12-17 |
 | [007](./007-package-manager-migration.md)           | Package Manager Migration to Yarn 4          | Accepted | 2024-12-17 |
 | [008](./008-testing-coverage-enhancement.md)        | Testing Coverage Enhancement                 | Proposed | 2026-01-20 |
 | [009](./009-production-observability-strategy.md)   | Production Observability Strategy            | Proposed | 2026-01-20 |
@@ -111,7 +114,7 @@ Use this template for new ADRs:
 
 Core architectural decisions that form the foundation of the system:
 
-- ADR-001 through ADR-007: Completed and accepted
+- ADR-001 through ADR-003 and ADR-007: Recorded as accepted
 
 ### Enhancements (Proposed)
 

@@ -3,10 +3,12 @@ openapi: 3.1.0
 info:
   title: MCP Node-RED Server API
   description: |
-    A comprehensive Model Context Protocol (MCP) server for Node-RED integration.
+    Historical draft API description for the Node-RED MCP server. This document
+    has not been verified against the current implementation or the Rocky POC.
+    Use the repository README and live compatibility record for validated behavior.
 
-    This API provides enterprise-grade Node-RED integration with modern security,
-    observability, and performance features built for 2025 standards.
+    The feature and endpoint descriptions below reflect the original design
+    intent and require implementation review before use as a client contract.
 
     ## Features
 
