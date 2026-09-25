@@ -32,6 +32,14 @@ refused before any request reached `/inject/:id`, and the counter did not move.
 That check is not part of the smoke scripts below, which never trigger the
 inject.
 
+`get_debug_output` was checked the same day against the same five versions,
+using a throwaway tab with one inject feeding two debug nodes. A plain `/comms`
+connection receives `debug` frames on every version without subscribing, and the
+frame shape is identical (`id`, `z`, `name`, `topic`, `property`, `msg`,
+`format`). Firing the inject the moment the socket opened never missed a
+message, and the `nodeId`, `flowId`, and `limit` options behaved as documented.
+Object payloads are pretty-printed by 1.x and compact on 2.x and later.
+
 Run against a disposable local Node-RED instance from the repository root:
 
 ```text

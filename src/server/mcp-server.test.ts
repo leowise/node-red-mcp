@@ -117,6 +117,18 @@ vi.mock('../services/node-error-checker.js', () => ({
   },
 }));
 
+const mockDebugCollector = {
+  collect: vi.fn(),
+};
+
+vi.mock('../services/debug-collector.js', () => ({
+  DebugOutputCollector: class {
+    constructor() {
+      return mockDebugCollector;
+    }
+  },
+}));
+
 // Mock MCP SDK Server
 vi.mock('@modelcontextprotocol/sdk/server/index.js', () => {
   return {
@@ -348,9 +360,24 @@ describe('McpNodeRedServer', () => {
       expect(tool?.annotations?.readOnlyHint).toBe(true);
     });
 
-    it('should have exactly 22 tools defined', () => {
+    it('should have exactly 23 tools defined', () => {
       const tools = mcpServer.getToolDefinitions();
-      expect(tools.length).toBe(22);
+      expect(tools.length).toBe(23);
+    });
+
+    it('should include get_debug_output as a read tool with no required parameters', () => {
+      const tool = mcpServer.getToolDefinitions().find(t => t.name === 'get_debug_output');
+
+      expect(tool).toBeDefined();
+      expect(tool?.annotations?.readOnlyHint).toBe(true);
+      expect(tool?.inputSchema.required).toEqual([]);
+      expect(Object.keys(tool?.inputSchema.properties ?? {}).sort()).toEqual([
+        'durationMs',
+        'flowId',
+        'limit',
+        'nodeId',
+        'triggerNodeId',
+      ]);
     });
 
     it('should include trigger_inject as a write tool that requires nodeId', () => {
@@ -1654,6 +1681,100 @@ describe('McpNodeRedServer', () => {
       const parsed = JSON.parse(result.content[0].text);
       expect(parsed.success).toBe(false);
       expect(parsed.error).toContain('auth failed');
+    });
+  });
+
+  describe('Tool Execution - get_debug_output', () => {
+    const mockOutput = {
+      messages: [
+        {
+          nodeId: 'dbg1',
+          nodeName: 'my debug',
+          flowId: 'flow-1',
+          topic: 't',
+          property: 'payload',
+          format: 'string[5]',
+          msg: 'hello',
+          receivedAt: '2026-09-25T20:00:00.000Z',
+        },
+      ],
+      truncated: false,
+      mayBeIncomplete: false,
+    };
+
+    it('passes every option to the collector and returns its result', async () => {
+      mockDebugCollector.collect.mockResolvedValueOnce(mockOutput);
+
+      const result = await mcpServer.callTool('get_debug_output', {
+        durationMs: 5000,
+        nodeId: 'dbg1',
+        flowId: 'flow-1',
+        limit: 10,
+      });
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(mockDebugCollector.collect).toHaveBeenCalledWith({
+        durationMs: 5000,
+        nodeId: 'dbg1',
+        flowId: 'flow-1',
+        limit: 10,
+        triggerNodeId: undefined,
+      });
+      expect(parsed.success).toBe(true);
+      expect(parsed.data).toEqual(mockOutput);
+    });
+
+    it('can fire an inject while listening when triggerNodeId is given', async () => {
+      mockDebugCollector.collect.mockResolvedValueOnce(mockOutput);
+
+      await mcpServer.callTool('get_debug_output', { triggerNodeId: 'inj1' });
+
+      expect(mockDebugCollector.collect).toHaveBeenCalledWith(
+        expect.objectContaining({ triggerNodeId: 'inj1' })
+      );
+    });
+
+    it('returns an error result when the collector fails', async () => {
+      mockDebugCollector.collect.mockRejectedValueOnce(new Error('not an inject node'));
+
+      const result = await mcpServer.callTool('get_debug_output', { triggerNodeId: 'fn' });
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.success).toBe(false);
+      expect(parsed.error).toContain('not an inject node');
+    });
+
+    describe('in read-only mode (MCP_READ_ONLY=true)', () => {
+      let original: string | undefined;
+
+      beforeEach(() => {
+        original = process.env.MCP_READ_ONLY;
+        process.env.MCP_READ_ONLY = 'true';
+      });
+
+      afterEach(() => {
+        if (original === undefined) delete process.env.MCP_READ_ONLY;
+        else process.env.MCP_READ_ONLY = original;
+      });
+
+      it('still lets a plain listen through', async () => {
+        mockDebugCollector.collect.mockResolvedValueOnce(mockOutput);
+
+        const result = await mcpServer.callTool('get_debug_output', {});
+        const parsed = JSON.parse(result.content[0].text);
+
+        expect(parsed.success).toBe(true);
+        expect(mockDebugCollector.collect).toHaveBeenCalledTimes(1);
+      });
+
+      it('refuses triggerNodeId because firing an inject is a write', async () => {
+        const result = await mcpServer.callTool('get_debug_output', { triggerNodeId: 'inj1' });
+        const parsed = JSON.parse(result.content[0].text);
+
+        expect(parsed.success).toBe(false);
+        expect(parsed.error).toContain('read-only mode');
+        expect(mockDebugCollector.collect).not.toHaveBeenCalled();
+      });
     });
   });
 });

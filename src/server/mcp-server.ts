@@ -13,6 +13,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { promptRegistry } from '../prompts/index.js';
+import { DebugOutputCollector } from '../services/debug-collector.js';
 import { createEmbeddingProvider } from '../services/embedding-provider.js';
 import { NodeErrorChecker } from '../services/node-error-checker.js';
 import { NodeRedAPIClient, NodeRedCapabilityUnavailableError } from '../services/nodered-api.js';
@@ -858,6 +859,46 @@ export class McpNodeRedServer {
         },
       },
       {
+        name: 'get_debug_output',
+        description:
+          'Listen to what Node-RED sends to the debug sidebar for a short window and return it. Only output produced during the window is captured (nothing is buffered from before), and only debug nodes with the sidebar option on send anything. To see the effect of an inject, pass triggerNodeId: the inject is fired once the connection is open, so its output is not missed. That fires the flow for real, so it is refused in read-only mode; without triggerNodeId this tool only listens.',
+        annotations: { readOnlyHint: true },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            durationMs: {
+              type: 'number',
+              description: 'How long to listen in milliseconds (default: 3000, max: 30000)',
+              default: 3000,
+              minimum: 100,
+              maximum: 30000,
+            },
+            nodeId: {
+              type: 'string',
+              description: 'Only return output from this debug node ID',
+            },
+            flowId: {
+              type: 'string',
+              description: 'Only return output from debug nodes in this flow',
+            },
+            limit: {
+              type: 'number',
+              description:
+                'Maximum messages to return (default: 100, max: 1000); the result says if it truncated',
+              default: 100,
+              minimum: 1,
+              maximum: 1000,
+            },
+            triggerNodeId: {
+              type: 'string',
+              description:
+                'ID of an inject node to fire once, right after the connection opens (same rules as trigger_inject)',
+            },
+          },
+          required: [],
+        },
+      },
+      {
         name: 'semantic_search_flows',
         description:
           'Search Node-RED flows and nodes using semantic similarity (BM25 by default; set EMBEDDING_API_URL for vector search). Returns ranked results with scores.',
@@ -1273,6 +1314,24 @@ export class McpNodeRedServer {
           const data = await checker.check({
             includeWarnings: args?.includeWarnings ?? false,
             timeoutMs: args?.timeoutMs,
+          });
+          result = { success: true, data, timestamp };
+          break;
+        }
+
+        case 'get_debug_output': {
+          if (args?.triggerNodeId && isReadOnlyMode()) {
+            throw new Error(
+              `Tool '${name}' cannot use triggerNodeId: firing an inject is a write, and the server is running in read-only mode (MCP_READ_ONLY=true)`
+            );
+          }
+          const collector = new DebugOutputCollector(this.nodeRedClient);
+          const data = await collector.collect({
+            durationMs: args?.durationMs,
+            nodeId: args?.nodeId,
+            flowId: args?.flowId,
+            limit: args?.limit,
+            triggerNodeId: args?.triggerNodeId,
           });
           result = { success: true, data, timestamp };
           break;

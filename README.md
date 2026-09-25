@@ -127,12 +127,19 @@ docker run -e NODERED_URL=http://your-nodered:1880 \
 
 ### Diagnostics
 
-| Tool               | Description                                     | Key Parameters                   |
-| ------------------ | ----------------------------------------------- | -------------------------------- |
-| `get_node_errors`  | Detect nodes in error/warning state (WebSocket) | `includeWarnings?`, `timeoutMs?` |
-| `get_flow_state`   | Get flow runtime state (started/stopped)        | —                                |
-| `get_settings`     | Get Node-RED runtime settings                   | —                                |
-| `get_runtime_info` | Get Node-RED version and system info            | —                                |
+| Tool               | Description                                     | Key Parameters                                                  |
+| ------------------ | ----------------------------------------------- | --------------------------------------------------------------- |
+| `get_node_errors`  | Detect nodes in error/warning state (WebSocket) | `includeWarnings?`, `timeoutMs?`                                |
+| `get_debug_output` | Listen to debug sidebar output for a short time | `durationMs?`, `nodeId?`, `flowId?`, `limit?`, `triggerNodeId?` |
+| `get_flow_state`   | Get flow runtime state (started/stopped)        | —                                                               |
+| `get_settings`     | Get Node-RED runtime settings                   | —                                                               |
+| `get_runtime_info` | Get Node-RED version and system info            | —                                                               |
+
+`get_debug_output` only captures what is sent while it listens; nothing is
+buffered from before. Pass `triggerNodeId` to fire an inject once the connection
+is open and see what it produces (a write, so read-only mode refuses it). The
+`msg` text is Node-RED's own formatting: object payloads are pretty-printed on
+1.x and compact on 2.x and later.
 
 ## 🔒 Read-Only Mode
 

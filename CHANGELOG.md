@@ -19,6 +19,18 @@ and this project adheres to
   that id, so the target is checked first: it must exist, be an inject node, and
   neither it nor its flow may be disabled. It is a write tool, so read-only mode
   blocks it. Verified on Node-RED 1.3.4, 1.3.5, 2.2.3, 3.1.15 and 4.1.15.
+- **`get_debug_output`**: listen to the debug sidebar output for a short window
+  (`durationMs`, default 3s, max 30s), optionally filtered by `nodeId` or
+  `flowId` and capped by `limit`. With `triggerNodeId` it fires an inject once
+  the WebSocket is open, so the inject's output cannot be missed; that part is a
+  write and is refused in read-only mode, while plain listening stays allowed.
+  Verified on Node-RED 1.3.4, 1.3.5, 2.2.3, 3.1.15 and 4.1.15.
+
+### Refactored
+
+- The `/comms` WebSocket handling (auth handshake, batched frames, timeout) that
+  `get_node_errors` used privately now lives in `nodered-comms.ts` and is shared
+  with `get_debug_output`. Behavior of `get_node_errors` is unchanged.
 
 ### Changed
 
