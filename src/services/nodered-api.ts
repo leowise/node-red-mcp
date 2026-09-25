@@ -597,6 +597,41 @@ export class NodeRedAPIClient {
   }
 
   /**
+   * Fire an inject node once, like clicking its button in the editor.
+   * POST /inject/:id calls receive() on whatever node has that id, so the target is checked first.
+   */
+  async triggerInject(nodeId: string): Promise<{ nodeId: string; flowId: string | undefined }> {
+    this.assertSafeSegment(nodeId, 'nodeId');
+
+    const records = await this.getFlows();
+    const node = records.find(record => record.id === nodeId);
+    if (!node) throw new Error(`Node '${nodeId}' not found`);
+    if (node.type !== 'inject') {
+      throw new Error(`Node '${nodeId}' is a '${node.type}' node, not an inject node`);
+    }
+    if (node.d === true) {
+      throw new Error(`Inject node '${nodeId}' is disabled; enable it before triggering it`);
+    }
+    const flow = records.find(record => record.id === node.z && record.type === 'tab');
+    if (flow?.disabled === true) {
+      throw new Error(`Inject node '${nodeId}' cannot run: flow '${flow.id}' is disabled`);
+    }
+
+    try {
+      await this.client.post(`/inject/${nodeId}`);
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        throw new Error(
+          `Inject node '${nodeId}' is not running in Node-RED (HTTP 404): make sure its flow is deployed and enabled. Inject nodes inside a subflow definition cannot be triggered directly.`,
+          { cause: error }
+        );
+      }
+      handleNodeRedError(error, `triggerInject(${nodeId})`);
+    }
+    return { nodeId, flowId: node.z };
+  }
+
+  /**
    * Delete flow
    */
   async deleteFlow(flowId: string): Promise<void> {

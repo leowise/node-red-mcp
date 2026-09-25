@@ -543,6 +543,19 @@ export class McpNodeRedServer {
         },
       },
       {
+        name: 'trigger_inject',
+        description:
+          'Fire an inject node once, exactly like clicking its button in the editor. This runs everything wired downstream of it for real (hardware GPIO, MQTT, exec nodes), so check what it is connected to first. Only inject nodes in enabled, deployed flows can be triggered.',
+        annotations: { readOnlyHint: false },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            nodeId: { type: 'string', description: 'ID of the inject node to trigger' },
+          },
+          required: ['nodeId'],
+        },
+      },
+      {
         name: 'enable_flow',
         description: 'Enable a specific Node-RED flow',
         annotations: { readOnlyHint: false },
@@ -983,6 +996,19 @@ export class McpNodeRedServer {
               {
                 type: 'text',
                 text: `Node '${args.nodeId}' in flow ${flowId} updated and verified by read-back`,
+              },
+            ],
+          };
+        }
+
+        case 'trigger_inject': {
+          validateRequired(args, ['nodeId']);
+          const { nodeId, flowId } = await this.nodeRedClient.triggerInject(args.nodeId);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Inject node '${nodeId}' triggered${flowId ? ` in flow ${flowId}` : ''}`,
               },
             ],
           };

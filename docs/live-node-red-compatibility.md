@@ -24,6 +24,14 @@ that the original tab list is restored. The inject has no schedule or startup
 trigger, and the test never triggers it. Cleanup searches only for its unique
 label if a request fails after a write.
 
+`trigger_inject` was checked separately on 2026-09-25 against 1.3.4, 1.3.5,
+2.2.3, 3.1.15, and 4.1.15, using a throwaway tab whose inject increments a
+global context counter. Each call fired the inject exactly once. Calls that
+target a non-inject node, an unknown node, or an inject in a disabled flow were
+refused before any request reached `/inject/:id`, and the counter did not move.
+That check is not part of the smoke scripts below, which never trigger the
+inject.
+
 Run against a disposable local Node-RED instance from the repository root:
 
 ```text

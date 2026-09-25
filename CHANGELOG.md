@@ -14,6 +14,11 @@ and this project adheres to
 - **`update_node`**: patch a single node (or flow-scoped config node) without
   resending the whole flow. The patch is shallow-merged, `id` and `z` cannot be
   changed, and the write is verified by read-back like `update_flow`.
+- **`trigger_inject`**: fire an inject node once, like clicking its button in
+  the editor. Node-RED's `POST /inject/:id` calls `receive()` on any node with
+  that id, so the target is checked first: it must exist, be an inject node, and
+  neither it nor its flow may be disabled. It is a write tool, so read-only mode
+  blocks it. Verified on Node-RED 1.3.4, 1.3.5, 2.2.3, 3.1.15 and 4.1.15.
 
 ### Changed
 

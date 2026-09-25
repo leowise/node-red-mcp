@@ -435,6 +435,78 @@ describe('NodeRedAPIClient', () => {
       });
     });
 
+    describe('triggerInject', () => {
+      const records = (overrides: Record<string, unknown> = {}, tabDisabled = false) => [
+        { id: 'tab-1', type: 'tab', label: 'Flow', disabled: tabDisabled },
+        { id: 'inj', type: 'inject', z: 'tab-1', x: 1, y: 1, wires: [['fn']], ...overrides },
+        { id: 'fn', type: 'function', z: 'tab-1', x: 2, y: 1, wires: [] },
+      ];
+
+      it('posts to /inject/:id for an enabled inject node and names its flow', async () => {
+        mockAxiosInstance.get.mockResolvedValueOnce({ data: records() });
+        mockAxiosInstance.post.mockResolvedValueOnce({ data: 'OK' });
+
+        const result = await client.triggerInject('inj');
+
+        expect(result).toEqual({ nodeId: 'inj', flowId: 'tab-1' });
+        expect(mockAxiosInstance.post).toHaveBeenCalledTimes(1);
+        expect(mockAxiosInstance.post.mock.calls[0][0]).toBe('/inject/inj');
+      });
+
+      it('refuses a node that is not an inject node, because /inject/:id would fire it anyway', async () => {
+        mockAxiosInstance.get.mockResolvedValueOnce({ data: records() });
+
+        await expect(client.triggerInject('fn')).rejects.toThrow(
+          /'fn' is a 'function' node, not an inject node/
+        );
+
+        expect(mockAxiosInstance.post).not.toHaveBeenCalled();
+      });
+
+      it('reports an unknown node id without posting', async () => {
+        mockAxiosInstance.get.mockResolvedValueOnce({ data: records() });
+
+        await expect(client.triggerInject('missing')).rejects.toThrow(/node 'missing' not found/i);
+
+        expect(mockAxiosInstance.post).not.toHaveBeenCalled();
+      });
+
+      it('refuses a disabled inject node without posting', async () => {
+        mockAxiosInstance.get.mockResolvedValueOnce({ data: records({ d: true }) });
+
+        await expect(client.triggerInject('inj')).rejects.toThrow(/disabled/i);
+
+        expect(mockAxiosInstance.post).not.toHaveBeenCalled();
+      });
+
+      it('refuses an inject node whose flow is disabled without posting', async () => {
+        mockAxiosInstance.get.mockResolvedValueOnce({ data: records({}, true) });
+
+        await expect(client.triggerInject('inj')).rejects.toThrow(/flow 'tab-1' is disabled/i);
+
+        expect(mockAxiosInstance.post).not.toHaveBeenCalled();
+      });
+
+      it('explains a Node-RED 404 as a node that is not running', async () => {
+        mockAxiosInstance.get.mockResolvedValueOnce({ data: records() });
+        mockAxiosInstance.post.mockRejectedValueOnce({
+          isAxiosError: true,
+          response: mockErrorResponses.notFound,
+        });
+
+        await expect(client.triggerInject('inj')).rejects.toThrow(
+          /not running.*deployed.*subflow/i
+        );
+      });
+
+      it('rejects an unsafe node id before any request', async () => {
+        await expect(client.triggerInject('../settings')).rejects.toThrow(/invalid nodeId/i);
+
+        expect(mockAxiosInstance.get).not.toHaveBeenCalled();
+        expect(mockAxiosInstance.post).not.toHaveBeenCalled();
+      });
+    });
+
     describe('deleteFlow', () => {
       it('should delete a flow', async () => {
         mockAxiosInstance.delete.mockResolvedValueOnce({ data: {} });

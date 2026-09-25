@@ -101,6 +101,7 @@ docker run -e NODERED_URL=http://your-nodered:1880 \
 | `create_flow`           | Create a new flow                  | `flowData`, `validate?`                          |
 | `update_flow`           | Update an existing flow            | `flowId`, `flowData`, `validate?`                |
 | `update_node`           | Patch one node in a flow           | `flowId`, `nodeId`, `patch`                      |
+| `trigger_inject`        | Fire an inject node once           | `nodeId`                                         |
 | `enable_flow`           | Enable a flow                      | `flowId`                                         |
 | `disable_flow`          | Disable a flow                     | `flowId`                                         |
 | `delete_flow`           | Delete a flow (dry-run by default) | `flowId`, `dryRun?`, `confirm?`                  |
@@ -140,13 +141,13 @@ flows — useful when exposing this server to remote AI agents where an accident
 or unintended write to a live/production instance is a real risk.
 
 When enabled, write tools (`create_flow`, `update_flow`, `update_node`,
-`delete_flow`, `enable_flow`, `disable_flow`, `set_context`, `delete_context`,
-`install_module`) are removed from the tool list entirely — clients never see
-them as available capabilities — and are also rejected if called directly by
-name. All read, search, diagnostic, resource, and prompt capabilities remain
-fully available. This pairs naturally with `delete_flow`'s existing `dryRun`
-default for deployments that need read/write in the same session but still want
-an extra layer of protection against accidental writes.
+`trigger_inject`, `delete_flow`, `enable_flow`, `disable_flow`, `set_context`,
+`delete_context`, `install_module`) are removed from the tool list entirely —
+clients never see them as available capabilities — and are also rejected if
+called directly by name. All read, search, diagnostic, resource, and prompt
+capabilities remain fully available. This pairs naturally with `delete_flow`'s
+existing `dryRun` default for deployments that need read/write in the same
+session but still want an extra layer of protection against accidental writes.
 
 ## 📦 MCP Resources
 

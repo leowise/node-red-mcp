@@ -39,6 +39,7 @@ const mockNodeRedClient = {
   createFlow: vi.fn(),
   updateFlow: vi.fn(),
   patchNode: vi.fn(),
+  triggerInject: vi.fn(),
   enableFlow: vi.fn(),
   disableFlow: vi.fn(),
   searchModules: vi.fn(),
@@ -153,6 +154,7 @@ describe('McpNodeRedServer', () => {
     mockNodeRedClient.createFlow.mockResolvedValue(mockCreatedFlow);
     mockNodeRedClient.updateFlow.mockResolvedValue(mockFlowTab);
     mockNodeRedClient.patchNode.mockResolvedValue({ id: 'node-1', type: 'inject', repeat: '30' });
+    mockNodeRedClient.triggerInject.mockResolvedValue({ nodeId: 'inj-1', flowId: 'flow-1' });
     mockNodeRedClient.enableFlow.mockResolvedValue(undefined);
     mockNodeRedClient.disableFlow.mockResolvedValue(undefined);
     mockNodeRedClient.searchModules.mockResolvedValue(mockSearchResult);
@@ -346,9 +348,17 @@ describe('McpNodeRedServer', () => {
       expect(tool?.annotations?.readOnlyHint).toBe(true);
     });
 
-    it('should have exactly 21 tools defined', () => {
+    it('should have exactly 22 tools defined', () => {
       const tools = mcpServer.getToolDefinitions();
-      expect(tools.length).toBe(21);
+      expect(tools.length).toBe(22);
+    });
+
+    it('should include trigger_inject as a write tool that requires nodeId', () => {
+      const tool = mcpServer.getToolDefinitions().find(t => t.name === 'trigger_inject');
+
+      expect(tool).toBeDefined();
+      expect(tool?.annotations?.readOnlyHint).toBe(false);
+      expect(tool?.inputSchema.required).toEqual(['nodeId']);
     });
 
     it('should include update_node tool that requires flowId, nodeId and patch', () => {
@@ -506,6 +516,49 @@ describe('McpNodeRedServer', () => {
       const result = await mcpServer.callTool('update_flow', { flowId: 'flow-1' });
 
       expect(result.content[0].text).toContain('flowData');
+    });
+  });
+
+  describe('Tool Execution - trigger_inject', () => {
+    it('fires the inject node and names the flow it ran in', async () => {
+      const result = await mcpServer.callTool('trigger_inject', { nodeId: 'inj-1' });
+
+      expect(mockNodeRedClient.triggerInject).toHaveBeenCalledWith('inj-1');
+      expect(result.content[0].text).toContain("Inject node 'inj-1' triggered in flow flow-1");
+    });
+
+    it('reports the failure when the client refuses the node', async () => {
+      mockNodeRedClient.triggerInject.mockRejectedValueOnce(
+        new Error("Node 'fn' is a 'function' node, not an inject node")
+      );
+
+      const result = await mcpServer.callTool('trigger_inject', { nodeId: 'fn' });
+      const parsed = JSON.parse(result.content[0].text);
+
+      expect(parsed.success).toBe(false);
+      expect(parsed.error).toContain('not an inject node');
+    });
+
+    it('rejects a call without nodeId', async () => {
+      const result = await mcpServer.callTool('trigger_inject', {});
+
+      expect(result.content[0].text).toContain('nodeId');
+      expect(mockNodeRedClient.triggerInject).not.toHaveBeenCalled();
+    });
+
+    it('is blocked when MCP_READ_ONLY=true', async () => {
+      const original = process.env.MCP_READ_ONLY;
+      process.env.MCP_READ_ONLY = 'true';
+      try {
+        const result = await mcpServer.callTool('trigger_inject', { nodeId: 'inj-1' });
+        const parsed = JSON.parse(result.content[0].text);
+
+        expect(parsed.error).toContain('read-only mode');
+        expect(mockNodeRedClient.triggerInject).not.toHaveBeenCalled();
+      } finally {
+        if (original === undefined) delete process.env.MCP_READ_ONLY;
+        else process.env.MCP_READ_ONLY = original;
+      }
     });
   });
 
