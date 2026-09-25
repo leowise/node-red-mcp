@@ -9,6 +9,19 @@ and this project adheres to
 
 ## [Unreleased] - 2026-09-24
 
+### Added
+
+- **`update_node`**: patch a single node (or flow-scoped config node) without
+  resending the whole flow. The patch is shallow-merged, `id` and `z` cannot be
+  changed, and the write is verified by read-back like `update_flow`.
+
+### Changed
+
+- **`get_flow`** now also returns `globalConfigs`: the shared config nodes (no
+  `z`, e.g. a ui_group or MQTT broker) the flow references, which
+  `GET /flow/:id` omits. It is read-only context; `update_flow` drops it before
+  writing so shared config nodes are never re-scoped to the flow.
+
 ### Validated
 
 - Exercised the built MCP server through HTTP and stdio clients against

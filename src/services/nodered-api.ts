@@ -8,6 +8,7 @@ import axios, { AxiosInstance, AxiosResponse, AxiosError } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 
 import {
+  NodeRedConfig,
   NodeRedFlow,
   NodeRedFlowRecord,
   NodeRedFlowSummary,
@@ -27,7 +28,7 @@ import {
   getNodeRedAuthScope,
 } from '../utils/auth.js';
 import { handleNodeRedError } from '../utils/error-handling.js';
-import { normalizeFlowRecords } from '../utils/flow-normalizer.js';
+import { findReferencedGlobalConfigs, normalizeFlowRecords } from '../utils/flow-normalizer.js';
 import { CircuitBreaker, retryWithCircuitBreaker, type RetryOptions } from '../utils/retry.js';
 
 export interface NodeRedAPIConfig {
@@ -485,6 +486,17 @@ export class NodeRedAPIClient {
   }
 
   /**
+   * Get a flow plus the shared (global) config nodes it references, which GET /flow/:id omits.
+   */
+  async getFlowWithGlobalConfigs(flowId: string): Promise<NodeRedFlow> {
+    const [flow, records] = await Promise.all([this.getFlow(flowId), this.getFlows()]);
+    return {
+      ...flow,
+      globalConfigs: findReferencedGlobalConfigs(records, flowId) as NodeRedConfig[],
+    };
+  }
+
+  /**
    * Create new flow with automatic unique ID generation
    */
   async createFlow(flowData: Partial<NodeRedFlow>): Promise<NodeRedFlow> {
@@ -509,8 +521,11 @@ export class NodeRedAPIClient {
   /**
    * Update existing flow
    */
-  async updateFlow(flowId: string, flowData: Partial<NodeRedFlow>): Promise<NodeRedFlow> {
+  async updateFlow(flowId: string, requested: Partial<NodeRedFlow>): Promise<NodeRedFlow> {
     this.assertSafeSegment(flowId, 'flowId');
+    // globalConfigs is read-only context from getFlowWithGlobalConfigs; PUT would re-scope them to this flow.
+    const flowData: Partial<NodeRedFlow> = { ...requested };
+    delete flowData.globalConfigs;
     try {
       await this.client.put(`/flow/${flowId}`, flowData);
     } catch (error) {
@@ -547,6 +562,38 @@ export class NodeRedAPIClient {
         { cause: error }
       );
     }
+  }
+
+  /**
+   * Change properties of one node (or flow-scoped config node) without resending the flow.
+   */
+  async patchNode(
+    flowId: string,
+    nodeId: string,
+    patch: Record<string, unknown>
+  ): Promise<NodeRedNode> {
+    for (const key of ['id', 'z']) {
+      if (key in patch) throw new Error(`Cannot change '${key}' of a node with patchNode`);
+    }
+
+    const flow = await this.getFlow(flowId);
+    const original =
+      flow.nodes.find(node => node.id === nodeId) ??
+      flow.configs?.find(config => config.id === nodeId);
+    if (!original) {
+      throw new Error(
+        `Node '${nodeId}' not found in flow '${flowId}'. Global config nodes are not part of a flow and cannot be patched here.`
+      );
+    }
+
+    const patched = { ...original, ...patch } as NodeRedNode;
+    const replace = <T extends { id: string }>(items: T[]): T[] =>
+      items.map(item => (item.id === nodeId ? (patched as unknown as T) : item));
+    const updated: Partial<NodeRedFlow> = { ...flow, nodes: replace(flow.nodes) };
+    if (flow.configs) updated.configs = replace(flow.configs);
+
+    await this.updateFlow(flowId, updated);
+    return patched;
   }
 
   /**

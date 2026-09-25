@@ -10,6 +10,49 @@ function isGraphNode(record: NodeRedFlowRecord): boolean {
   );
 }
 
+function collectStringValues(value: unknown, into: Set<string>): void {
+  if (typeof value === 'string') {
+    into.add(value);
+  } else if (Array.isArray(value)) {
+    value.forEach(item => collectStringValues(item, into));
+  } else if (value && typeof value === 'object') {
+    Object.values(value).forEach(item => collectStringValues(item, into));
+  }
+}
+
+/**
+ * Global config nodes (no `z`, e.g. a shared ui_group or MQTT broker) that a flow
+ * uses, directly or through other global configs. GET /flow/:id omits them.
+ */
+export function findReferencedGlobalConfigs(
+  records: NodeRedFlowRecord[],
+  flowId: string
+): NodeRedFlowRecord[] {
+  const globals = new Map(
+    records
+      .filter(
+        record => !record.z && record.type && record.type !== 'tab' && record.type !== 'subflow'
+      )
+      .map(record => [record.id, record])
+  );
+  const referenced = new Set<string>();
+  const pending = records.filter(record => record.z === flowId);
+
+  while (pending.length) {
+    const values = new Set<string>();
+    collectStringValues(pending.pop(), values);
+    for (const value of values) {
+      const config = globals.get(value);
+      if (config && !referenced.has(value)) {
+        referenced.add(value);
+        pending.push(config);
+      }
+    }
+  }
+
+  return records.filter(record => referenced.has(record.id));
+}
+
 /** Convert Node-RED's flat GET /flows records into tab/subflow objects. */
 export function normalizeFlowRecords(records: NodeRedFlowRecord[]): NodeRedFlow[] {
   if (records.every(record => Array.isArray(record.nodes))) {

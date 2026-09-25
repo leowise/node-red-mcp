@@ -301,6 +301,138 @@ describe('NodeRedAPIClient', () => {
         });
         expect(mockAxiosInstance.get).toHaveBeenCalledWith('/flow/flow-1');
       });
+
+      it('does not send globalConfigs back, so shared config nodes are never re-scoped to the flow', async () => {
+        const stored = { ...mockFlowTab, label: 'New Label' };
+        mockAxiosInstance.put.mockResolvedValueOnce({ data: {} });
+        mockAxiosInstance.get.mockResolvedValueOnce({ data: stored });
+
+        await client.updateFlow('flow-1', {
+          label: 'New Label',
+          globalConfigs: [{ id: 'grp', type: 'ui_group', name: 'Actions' }],
+        });
+
+        expect(mockAxiosInstance.put).toHaveBeenCalledWith('/flow/flow-1', {
+          label: 'New Label',
+        });
+      });
+    });
+
+    describe('getFlowWithGlobalConfigs', () => {
+      it('adds the global config nodes the flow references under globalConfigs', async () => {
+        const flow = {
+          id: 'flow-1',
+          label: 'Test Flow',
+          nodes: [{ id: 'btn', type: 'ui_button', z: 'flow-1', x: 1, y: 1, group: 'grp' }],
+        };
+        mockAxiosInstance.get.mockImplementation(async (url: string) => {
+          if (url === '/flow/flow-1') return { data: flow };
+          if (url === '/flows') {
+            return {
+              data: [
+                { id: 'flow-1', type: 'tab', label: 'Test Flow' },
+                { id: 'btn', type: 'ui_button', z: 'flow-1', x: 1, y: 1, group: 'grp' },
+                { id: 'grp', type: 'ui_group', name: 'Actions' },
+                { id: 'other', type: 'ui_group', name: 'Not referenced' },
+              ],
+            };
+          }
+          throw new Error(`unexpected GET ${url}`);
+        });
+
+        const result = await client.getFlowWithGlobalConfigs('flow-1');
+
+        expect(result).toEqual({
+          ...flow,
+          globalConfigs: [{ id: 'grp', type: 'ui_group', name: 'Actions' }],
+        });
+      });
+    });
+
+    describe('patchNode', () => {
+      const storedFlow = () => ({
+        id: 'flow-1',
+        label: 'Test Flow',
+        nodes: [
+          { id: 'a', type: 'inject', name: 'tick', repeat: '60', x: 1, y: 2, wires: [['b']] },
+          { id: 'b', type: 'debug', x: 3, y: 4, wires: [] },
+        ],
+        configs: [{ id: 'cfg', type: 'ui_group', z: 'flow-1', name: 'Group' }],
+      });
+
+      it('changes only the patched properties of one node and writes the flow back', async () => {
+        const after = {
+          ...storedFlow(),
+          nodes: storedFlow().nodes.map(node =>
+            node.id === 'a' ? { ...node, repeat: '30' } : node
+          ),
+        };
+        mockAxiosInstance.get
+          .mockResolvedValueOnce({ data: storedFlow() })
+          .mockResolvedValueOnce({ data: after });
+        mockAxiosInstance.put.mockResolvedValueOnce({ data: {} });
+
+        const patched = await client.patchNode('flow-1', 'a', { repeat: '30' });
+
+        expect(patched).toEqual({
+          id: 'a',
+          type: 'inject',
+          name: 'tick',
+          repeat: '30',
+          x: 1,
+          y: 2,
+          wires: [['b']],
+        });
+        expect(mockAxiosInstance.put).toHaveBeenCalledWith('/flow/flow-1', {
+          id: 'flow-1',
+          label: 'Test Flow',
+          nodes: [
+            { id: 'a', type: 'inject', name: 'tick', repeat: '30', x: 1, y: 2, wires: [['b']] },
+            { id: 'b', type: 'debug', x: 3, y: 4, wires: [] },
+          ],
+          configs: [{ id: 'cfg', type: 'ui_group', z: 'flow-1', name: 'Group' }],
+        });
+      });
+
+      it('can patch a flow-scoped config node', async () => {
+        const after = {
+          ...storedFlow(),
+          configs: storedFlow().configs.map(config => ({ ...config, name: 'Renamed' })),
+        };
+        mockAxiosInstance.get
+          .mockResolvedValueOnce({ data: storedFlow() })
+          .mockResolvedValueOnce({ data: after });
+        mockAxiosInstance.put.mockResolvedValueOnce({ data: {} });
+
+        await client.patchNode('flow-1', 'cfg', { name: 'Renamed' });
+
+        expect(mockAxiosInstance.put).toHaveBeenCalledWith('/flow/flow-1', {
+          id: 'flow-1',
+          label: 'Test Flow',
+          nodes: storedFlow().nodes,
+          configs: [{ id: 'cfg', type: 'ui_group', z: 'flow-1', name: 'Renamed' }],
+        });
+      });
+
+      it.each([
+        ['id', { id: 'other' }],
+        ['z', { z: 'flow-2' }],
+      ])('refuses a patch that sets %s before touching Node-RED', async (_key, patch) => {
+        await expect(client.patchNode('flow-1', 'a', patch)).rejects.toThrow(/cannot change/i);
+
+        expect(mockAxiosInstance.get).not.toHaveBeenCalled();
+        expect(mockAxiosInstance.put).not.toHaveBeenCalled();
+      });
+
+      it('reports an unknown node id and writes nothing', async () => {
+        mockAxiosInstance.get.mockResolvedValueOnce({ data: storedFlow() });
+
+        await expect(client.patchNode('flow-1', 'missing', { name: 'x' })).rejects.toThrow(
+          /node 'missing' not found in flow 'flow-1'/i
+        );
+
+        expect(mockAxiosInstance.put).not.toHaveBeenCalled();
+      });
     });
 
     describe('deleteFlow', () => {

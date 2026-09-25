@@ -456,7 +456,8 @@ export class McpNodeRedServer {
       },
       {
         name: 'get_flow',
-        description: 'Get specific Node-RED flow by ID',
+        description:
+          'Get specific Node-RED flow by ID. Also returns globalConfigs: the shared config nodes (e.g. a ui_group or MQTT broker with no flow scope) the flow references. globalConfigs is read-only context and is ignored by update_flow.',
         annotations: { readOnlyHint: true },
         inputSchema: {
           type: 'object',
@@ -521,6 +522,24 @@ export class McpNodeRedServer {
             },
           },
           required: ['flowId', 'flowData'],
+        },
+      },
+      {
+        name: 'update_node',
+        description:
+          'Change properties of a single node (or flow-scoped config node) in a flow without resending the whole flow. The patch is shallow-merged into the node; id and z cannot be changed. The result is verified by reading the flow back. Global config nodes (see get_flow globalConfigs) cannot be patched with this tool.',
+        annotations: { readOnlyHint: false },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            flowId: { type: 'string', description: 'ID of the flow that contains the node' },
+            nodeId: { type: 'string', description: 'ID of the node to patch' },
+            patch: {
+              type: 'object',
+              description: 'Properties to set on the node, e.g. { "repeat": "30" }',
+            },
+          },
+          required: ['flowId', 'nodeId', 'patch'],
         },
       },
       {
@@ -914,7 +933,11 @@ export class McpNodeRedServer {
 
         case 'get_flow': {
           const flowId = await this.resolveFlowId(args, 'get');
-          result = { success: true, data: await this.nodeRedClient.getFlow(flowId), timestamp };
+          result = {
+            success: true,
+            data: await this.nodeRedClient.getFlowWithGlobalConfigs(flowId),
+            timestamp,
+          };
           break;
         }
 
@@ -945,6 +968,23 @@ export class McpNodeRedServer {
           await this.nodeRedClient.updateFlow(flowId, args.flowData);
           return {
             content: [{ type: 'text', text: `Flow ${flowId} updated and verified by read-back` }],
+          };
+        }
+
+        case 'update_node': {
+          const flowId = await this.resolveFlowId(args, 'update');
+          validateRequired(args, ['nodeId', 'patch']);
+          if (typeof args.patch !== 'object' || Array.isArray(args.patch)) {
+            throw new Error("Parameter 'patch' must be an object");
+          }
+          await this.nodeRedClient.patchNode(flowId, args.nodeId, args.patch);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Node '${args.nodeId}' in flow ${flowId} updated and verified by read-back`,
+              },
+            ],
           };
         }
 

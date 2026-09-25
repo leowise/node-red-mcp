@@ -35,8 +35,10 @@ const mockNodeRedClient = {
   getNormalizedFlows: vi.fn(),
   getFlowSummaries: vi.fn(),
   getFlow: vi.fn(),
+  getFlowWithGlobalConfigs: vi.fn(),
   createFlow: vi.fn(),
   updateFlow: vi.fn(),
+  patchNode: vi.fn(),
   enableFlow: vi.fn(),
   disableFlow: vi.fn(),
   searchModules: vi.fn(),
@@ -144,8 +146,13 @@ describe('McpNodeRedServer', () => {
     mockNodeRedClient.getNormalizedFlows.mockResolvedValue(mockFlows);
     mockNodeRedClient.getFlowSummaries.mockResolvedValue(mockFlowSummaries);
     mockNodeRedClient.getFlow.mockResolvedValue(mockFlowTab);
+    mockNodeRedClient.getFlowWithGlobalConfigs.mockResolvedValue({
+      ...mockFlowTab,
+      globalConfigs: [{ id: 'grp', type: 'ui_group', name: 'Actions' }],
+    });
     mockNodeRedClient.createFlow.mockResolvedValue(mockCreatedFlow);
     mockNodeRedClient.updateFlow.mockResolvedValue(mockFlowTab);
+    mockNodeRedClient.patchNode.mockResolvedValue({ id: 'node-1', type: 'inject', repeat: '30' });
     mockNodeRedClient.enableFlow.mockResolvedValue(undefined);
     mockNodeRedClient.disableFlow.mockResolvedValue(undefined);
     mockNodeRedClient.searchModules.mockResolvedValue(mockSearchResult);
@@ -339,9 +346,17 @@ describe('McpNodeRedServer', () => {
       expect(tool?.annotations?.readOnlyHint).toBe(true);
     });
 
-    it('should have exactly 20 tools defined', () => {
+    it('should have exactly 21 tools defined', () => {
       const tools = mcpServer.getToolDefinitions();
-      expect(tools.length).toBe(20);
+      expect(tools.length).toBe(21);
+    });
+
+    it('should include update_node tool that requires flowId, nodeId and patch', () => {
+      const tool = mcpServer.getToolDefinitions().find(t => t.name === 'update_node');
+
+      expect(tool).toBeDefined();
+      expect(tool?.annotations?.readOnlyHint).toBe(false);
+      expect(tool?.inputSchema.required).toEqual(['flowId', 'nodeId', 'patch']);
     });
 
     it('should include semantic_search_flows tool', () => {
@@ -442,11 +457,12 @@ describe('McpNodeRedServer', () => {
   });
 
   describe('Tool Execution - get_flow', () => {
-    it('should return specific flow', async () => {
+    it('should return the flow together with the global configs it references', async () => {
       const result = await mcpServer.callTool('get_flow', { flowId: 'flow-1' });
 
-      expect(mockNodeRedClient.getFlow).toHaveBeenCalledWith('flow-1');
-      expect(result.content).toBeDefined();
+      expect(mockNodeRedClient.getFlowWithGlobalConfigs).toHaveBeenCalledWith('flow-1');
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.data.globalConfigs).toEqual([{ id: 'grp', type: 'ui_group', name: 'Actions' }]);
     });
 
     it('should throw validation error when flowId is missing', async () => {
@@ -490,6 +506,50 @@ describe('McpNodeRedServer', () => {
       const result = await mcpServer.callTool('update_flow', { flowId: 'flow-1' });
 
       expect(result.content[0].text).toContain('flowData');
+    });
+  });
+
+  describe('Tool Execution - update_node', () => {
+    it('patches one node and reports the result', async () => {
+      const result = await mcpServer.callTool('update_node', {
+        flowId: 'flow-1',
+        nodeId: 'node-1',
+        patch: { repeat: '30' },
+      });
+
+      expect(mockNodeRedClient.patchNode).toHaveBeenCalledWith('flow-1', 'node-1', {
+        repeat: '30',
+      });
+      expect(result.content[0].text).toContain("Node 'node-1' in flow flow-1 updated");
+    });
+
+    it('rejects a call without a patch object', async () => {
+      const result = await mcpServer.callTool('update_node', {
+        flowId: 'flow-1',
+        nodeId: 'node-1',
+      });
+
+      expect(result.content[0].text).toContain('patch');
+      expect(mockNodeRedClient.patchNode).not.toHaveBeenCalled();
+    });
+
+    it('is blocked when MCP_READ_ONLY=true', async () => {
+      const original = process.env.MCP_READ_ONLY;
+      process.env.MCP_READ_ONLY = 'true';
+      try {
+        const result = await mcpServer.callTool('update_node', {
+          flowId: 'flow-1',
+          nodeId: 'node-1',
+          patch: { repeat: '30' },
+        });
+        const parsed = JSON.parse(result.content[0].text);
+
+        expect(parsed.error).toContain('read-only mode');
+        expect(mockNodeRedClient.patchNode).not.toHaveBeenCalled();
+      } finally {
+        if (original === undefined) delete process.env.MCP_READ_ONLY;
+        else process.env.MCP_READ_ONLY = original;
+      }
     });
   });
 
@@ -1093,7 +1153,9 @@ describe('McpNodeRedServer', () => {
 
   describe('Tool Execution - Error Handling', () => {
     it('should handle errors in tool execution', async () => {
-      mockNodeRedClient.getFlow.mockRejectedValueOnce(new Error('Connection failed'));
+      mockNodeRedClient.getFlowWithGlobalConfigs.mockRejectedValueOnce(
+        new Error('Connection failed')
+      );
 
       const result = await mcpServer.callTool('get_flow', { flowId: 'flow-1' });
 
@@ -1363,7 +1425,7 @@ describe('McpNodeRedServer', () => {
         content: { flowId: 'flow-1' },
       });
       const result = await mcpServer.callTool('get_flow', {});
-      expect(mockNodeRedClient.getFlow).toHaveBeenCalledWith('flow-1');
+      expect(mockNodeRedClient.getFlowWithGlobalConfigs).toHaveBeenCalledWith('flow-1');
       const parsed = JSON.parse(result.content[0].text);
       expect(parsed.success).toBe(true);
     });
