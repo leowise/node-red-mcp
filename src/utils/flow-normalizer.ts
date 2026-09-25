@@ -16,9 +16,7 @@ export function normalizeFlowRecords(records: NodeRedFlowRecord[]): NodeRedFlow[
     return records as NodeRedFlow[];
   }
 
-  const containers = records.filter(
-    record => record.type === 'tab' || record.type === 'subflow'
-  );
+  const containers = records.filter(record => record.type === 'tab' || record.type === 'subflow');
   const flows = containers.map(record => ({
     ...record,
     label: record.label ?? record.name,
@@ -27,10 +25,7 @@ export function normalizeFlowRecords(records: NodeRedFlowRecord[]): NodeRedFlow[
   const byId = new Map(flows.map(flow => [flow.id, flow]));
   const configs = records.filter(
     record =>
-      record.type &&
-      record.type !== 'tab' &&
-      record.type !== 'subflow' &&
-      !isGraphNode(record)
+      record.type && record.type !== 'tab' && record.type !== 'subflow' && !isGraphNode(record)
   );
 
   for (const record of records) {

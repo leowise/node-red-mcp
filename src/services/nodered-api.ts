@@ -68,7 +68,10 @@ const SAFE_SEGMENT_RE = /^[A-Za-z0-9_.-]+$/;
 const SAFE_LIBRARY_PATH_RE = /^[A-Za-z0-9_./-]+$/;
 
 export class NodeRedCapabilityUnavailableError extends Error {
-  constructor(public readonly capability: string, public readonly endpoint: string) {
+  constructor(
+    public readonly capability: string,
+    public readonly endpoint: string
+  ) {
     super(`Node-RED capability '${capability}' is unavailable: ${endpoint} is not supported`);
     this.name = 'NodeRedCapabilityUnavailableError';
   }
@@ -76,8 +79,7 @@ export class NodeRedCapabilityUnavailableError extends Error {
 
 function isUnsupportedEndpoint(error: unknown): boolean {
   return (
-    axios.isAxiosError(error) &&
-    (error.response?.status === 404 || error.response?.status === 405)
+    axios.isAxiosError(error) && (error.response?.status === 404 || error.response?.status === 405)
   );
 }
 
@@ -384,7 +386,9 @@ export class NodeRedAPIClient {
             'Node-RED returned HTML content instead of flow data. Check authentication and endpoint configuration.'
           );
         }
-        throw new Error('Node-RED returned an unexpected response for GET /flows; expected an array.');
+        throw new Error(
+          'Node-RED returned an unexpected response for GET /flows; expected an array.'
+        );
       }
 
       return response.data;

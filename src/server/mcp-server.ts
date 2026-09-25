@@ -15,10 +15,7 @@ import {
 import { promptRegistry } from '../prompts/index.js';
 import { createEmbeddingProvider } from '../services/embedding-provider.js';
 import { NodeErrorChecker } from '../services/node-error-checker.js';
-import {
-  NodeRedAPIClient,
-  NodeRedCapabilityUnavailableError,
-} from '../services/nodered-api.js';
+import { NodeRedAPIClient, NodeRedCapabilityUnavailableError } from '../services/nodered-api.js';
 import { SemanticFlowIndex } from '../services/semantic-index.js';
 import {
   McpServerConfig,
@@ -947,9 +944,7 @@ export class McpNodeRedServer {
           if (args?.validate) validateFlowOrThrow(args.flowData);
           await this.nodeRedClient.updateFlow(flowId, args.flowData);
           return {
-            content: [
-              { type: 'text', text: `Flow ${flowId} updated and verified by read-back` },
-            ],
+            content: [{ type: 'text', text: `Flow ${flowId} updated and verified by read-back` }],
           };
         }
 
