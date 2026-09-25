@@ -60,7 +60,7 @@ nodes in error/warning state in real time.
 ### Prerequisites
 
 - **Node.js** 22+ (LTS recommended)
-- **Yarn** 4.x (automatically managed via Corepack)
+- **Corepack** (to run the project-pinned Yarn 4.x release)
 - **Docker** (optional, for containerized setup)
 - A reachable Node-RED instance (the MCP server and Node-RED may run on
   different machines)
@@ -70,8 +70,8 @@ nodes in error/warning state in real time.
 ```bash
 git clone https://github.com/ziv-daniel/node-red-mcp.git
 cd node-red-mcp
-yarn install
-yarn build
+corepack yarn install
+corepack yarn build
 ```
 
 Configure your MCP client to launch `dist/index.mjs` with Node.js 22+ and set
