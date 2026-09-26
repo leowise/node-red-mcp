@@ -130,9 +130,6 @@ build/
 ehthumbs.db
 Thumbs.db
 
-# Docker
-.dockerignore
-
 # Test files
 test-results/
 playwright-report/

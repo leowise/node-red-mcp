@@ -13,12 +13,10 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { promptRegistry } from '../prompts/index.js';
+import { DebugOutputCollector } from '../services/debug-collector.js';
 import { createEmbeddingProvider } from '../services/embedding-provider.js';
 import { NodeErrorChecker } from '../services/node-error-checker.js';
-import {
-  NodeRedAPIClient,
-  NodeRedCapabilityUnavailableError,
-} from '../services/nodered-api.js';
+import { NodeRedAPIClient, NodeRedCapabilityUnavailableError } from '../services/nodered-api.js';
 import { SemanticFlowIndex } from '../services/semantic-index.js';
 import {
   McpServerConfig,
@@ -459,7 +457,8 @@ export class McpNodeRedServer {
       },
       {
         name: 'get_flow',
-        description: 'Get specific Node-RED flow by ID',
+        description:
+          'Get specific Node-RED flow by ID. Also returns globalConfigs: the shared config nodes (e.g. a ui_group or MQTT broker with no flow scope) the flow references. globalConfigs is read-only context and is ignored by update_flow.',
         annotations: { readOnlyHint: true },
         inputSchema: {
           type: 'object',
@@ -524,6 +523,37 @@ export class McpNodeRedServer {
             },
           },
           required: ['flowId', 'flowData'],
+        },
+      },
+      {
+        name: 'update_node',
+        description:
+          'Change properties of a single node (or flow-scoped config node) in a flow without resending the whole flow. The patch is shallow-merged into the node; id and z cannot be changed. The result is verified by reading the flow back. Global config nodes (see get_flow globalConfigs) cannot be patched with this tool.',
+        annotations: { readOnlyHint: false },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            flowId: { type: 'string', description: 'ID of the flow that contains the node' },
+            nodeId: { type: 'string', description: 'ID of the node to patch' },
+            patch: {
+              type: 'object',
+              description: 'Properties to set on the node, e.g. { "repeat": "30" }',
+            },
+          },
+          required: ['flowId', 'nodeId', 'patch'],
+        },
+      },
+      {
+        name: 'trigger_inject',
+        description:
+          'Fire an inject node once, exactly like clicking its button in the editor. This runs everything wired downstream of it for real (hardware GPIO, MQTT, exec nodes), so check what it is connected to first. Only inject nodes in enabled, deployed flows can be triggered.',
+        annotations: { readOnlyHint: false },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            nodeId: { type: 'string', description: 'ID of the inject node to trigger' },
+          },
+          required: ['nodeId'],
         },
       },
       {
@@ -829,6 +859,46 @@ export class McpNodeRedServer {
         },
       },
       {
+        name: 'get_debug_output',
+        description:
+          'Listen to what Node-RED sends to the debug sidebar for a short window and return it. Only output produced during the window is captured (nothing is buffered from before), and only debug nodes with the sidebar option on send anything. To see the effect of an inject, pass triggerNodeId: the inject is fired once the connection is open, so its output is not missed. That fires the flow for real, so it is refused in read-only mode; without triggerNodeId this tool only listens.',
+        annotations: { readOnlyHint: true },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            durationMs: {
+              type: 'number',
+              description: 'How long to listen in milliseconds (default: 3000, max: 30000)',
+              default: 3000,
+              minimum: 100,
+              maximum: 30000,
+            },
+            nodeId: {
+              type: 'string',
+              description: 'Only return output from this debug node ID',
+            },
+            flowId: {
+              type: 'string',
+              description: 'Only return output from debug nodes in this flow',
+            },
+            limit: {
+              type: 'number',
+              description:
+                'Maximum messages to return (default: 100, max: 1000); the result says if it truncated',
+              default: 100,
+              minimum: 1,
+              maximum: 1000,
+            },
+            triggerNodeId: {
+              type: 'string',
+              description:
+                'ID of an inject node to fire once, right after the connection opens (same rules as trigger_inject)',
+            },
+          },
+          required: [],
+        },
+      },
+      {
         name: 'semantic_search_flows',
         description:
           'Search Node-RED flows and nodes using semantic similarity (BM25 by default; set EMBEDDING_API_URL for vector search). Returns ranked results with scores.',
@@ -917,7 +987,11 @@ export class McpNodeRedServer {
 
         case 'get_flow': {
           const flowId = await this.resolveFlowId(args, 'get');
-          result = { success: true, data: await this.nodeRedClient.getFlow(flowId), timestamp };
+          result = {
+            success: true,
+            data: await this.nodeRedClient.getFlowWithGlobalConfigs(flowId),
+            timestamp,
+          };
           break;
         }
 
@@ -947,8 +1021,36 @@ export class McpNodeRedServer {
           if (args?.validate) validateFlowOrThrow(args.flowData);
           await this.nodeRedClient.updateFlow(flowId, args.flowData);
           return {
+            content: [{ type: 'text', text: `Flow ${flowId} updated and verified by read-back` }],
+          };
+        }
+
+        case 'update_node': {
+          const flowId = await this.resolveFlowId(args, 'update');
+          validateRequired(args, ['nodeId', 'patch']);
+          if (typeof args.patch !== 'object' || Array.isArray(args.patch)) {
+            throw new Error("Parameter 'patch' must be an object");
+          }
+          await this.nodeRedClient.patchNode(flowId, args.nodeId, args.patch);
+          return {
             content: [
-              { type: 'text', text: `Flow ${flowId} updated and verified by read-back` },
+              {
+                type: 'text',
+                text: `Node '${args.nodeId}' in flow ${flowId} updated and verified by read-back`,
+              },
+            ],
+          };
+        }
+
+        case 'trigger_inject': {
+          validateRequired(args, ['nodeId']);
+          const { nodeId, flowId } = await this.nodeRedClient.triggerInject(args.nodeId);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Inject node '${nodeId}' triggered${flowId ? ` in flow ${flowId}` : ''}`,
+              },
             ],
           };
         }
@@ -1212,6 +1314,24 @@ export class McpNodeRedServer {
           const data = await checker.check({
             includeWarnings: args?.includeWarnings ?? false,
             timeoutMs: args?.timeoutMs,
+          });
+          result = { success: true, data, timestamp };
+          break;
+        }
+
+        case 'get_debug_output': {
+          if (args?.triggerNodeId && isReadOnlyMode()) {
+            throw new Error(
+              `Tool '${name}' cannot use triggerNodeId: firing an inject is a write, and the server is running in read-only mode (MCP_READ_ONLY=true)`
+            );
+          }
+          const collector = new DebugOutputCollector(this.nodeRedClient);
+          const data = await collector.collect({
+            durationMs: args?.durationMs,
+            nodeId: args?.nodeId,
+            flowId: args?.flowId,
+            limit: args?.limit,
+            triggerNodeId: args?.triggerNodeId,
           });
           result = { success: true, data, timestamp };
           break;

@@ -60,7 +60,7 @@ nodes in error/warning state in real time.
 ### Prerequisites
 
 - **Node.js** 22+ (LTS recommended)
-- **Yarn** 4.x (automatically managed via Corepack)
+- **Corepack** (to run the project-pinned Yarn 4.x release)
 - **Docker** (optional, for containerized setup)
 - A reachable Node-RED instance (the MCP server and Node-RED may run on
   different machines)
@@ -70,8 +70,8 @@ nodes in error/warning state in real time.
 ```bash
 git clone https://github.com/ziv-daniel/node-red-mcp.git
 cd node-red-mcp
-yarn install
-yarn build
+corepack yarn install
+corepack yarn build
 ```
 
 Configure your MCP client to launch `dist/index.mjs` with Node.js 22+ and set
@@ -97,9 +97,11 @@ docker run -e NODERED_URL=http://your-nodered:1880 \
 | Tool                    | Description                        | Key Parameters                                   |
 | ----------------------- | ---------------------------------- | ------------------------------------------------ |
 | `get_flows`             | List flows (summary or full)       | `includeDetails?`, `types?`, `limit?`, `offset?` |
-| `get_flow`              | Get a specific flow                | `flowId`                                         |
+| `get_flow`              | Get a flow and its `globalConfigs` | `flowId`                                         |
 | `create_flow`           | Create a new flow                  | `flowData`, `validate?`                          |
 | `update_flow`           | Update an existing flow            | `flowId`, `flowData`, `validate?`                |
+| `update_node`           | Patch one node in a flow           | `flowId`, `nodeId`, `patch`                      |
+| `trigger_inject`        | Fire an inject node once           | `nodeId`                                         |
 | `enable_flow`           | Enable a flow                      | `flowId`                                         |
 | `disable_flow`          | Disable a flow                     | `flowId`                                         |
 | `delete_flow`           | Delete a flow (dry-run by default) | `flowId`, `dryRun?`, `confirm?`                  |
@@ -125,12 +127,19 @@ docker run -e NODERED_URL=http://your-nodered:1880 \
 
 ### Diagnostics
 
-| Tool               | Description                                     | Key Parameters                   |
-| ------------------ | ----------------------------------------------- | -------------------------------- |
-| `get_node_errors`  | Detect nodes in error/warning state (WebSocket) | `includeWarnings?`, `timeoutMs?` |
-| `get_flow_state`   | Get flow runtime state (started/stopped)        | —                                |
-| `get_settings`     | Get Node-RED runtime settings                   | —                                |
-| `get_runtime_info` | Get Node-RED version and system info            | —                                |
+| Tool               | Description                                     | Key Parameters                                                  |
+| ------------------ | ----------------------------------------------- | --------------------------------------------------------------- |
+| `get_node_errors`  | Detect nodes in error/warning state (WebSocket) | `includeWarnings?`, `timeoutMs?`                                |
+| `get_debug_output` | Listen to debug sidebar output for a short time | `durationMs?`, `nodeId?`, `flowId?`, `limit?`, `triggerNodeId?` |
+| `get_flow_state`   | Get flow runtime state (started/stopped)        | —                                                               |
+| `get_settings`     | Get Node-RED runtime settings                   | —                                                               |
+| `get_runtime_info` | Get Node-RED version and system info            | —                                                               |
+
+`get_debug_output` only captures what is sent while it listens; nothing is
+buffered from before. Pass `triggerNodeId` to fire an inject once the connection
+is open and see what it produces (a write, so read-only mode refuses it). The
+`msg` text is Node-RED's own formatting: object payloads are pretty-printed on
+1.x and compact on 2.x and later.
 
 ## 🔒 Read-Only Mode
 
@@ -138,14 +147,14 @@ Set `MCP_READ_ONLY=true` to structurally prevent any mutation of your Node-RED
 flows — useful when exposing this server to remote AI agents where an accidental
 or unintended write to a live/production instance is a real risk.
 
-When enabled, write tools (`create_flow`, `update_flow`, `delete_flow`,
-`enable_flow`, `disable_flow`, `set_context`, `delete_context`,
-`install_module`) are removed from the tool list entirely — clients never see
-them as available capabilities — and are also rejected if called directly by
-name. All read, search, diagnostic, resource, and prompt capabilities remain
-fully available. This pairs naturally with `delete_flow`'s existing `dryRun`
-default for deployments that need read/write in the same session but still want
-an extra layer of protection against accidental writes.
+When enabled, write tools (`create_flow`, `update_flow`, `update_node`,
+`trigger_inject`, `delete_flow`, `enable_flow`, `disable_flow`, `set_context`,
+`delete_context`, `install_module`) are removed from the tool list entirely —
+clients never see them as available capabilities — and are also rejected if
+called directly by name. All read, search, diagnostic, resource, and prompt
+capabilities remain fully available. This pairs naturally with `delete_flow`'s
+existing `dryRun` default for deployments that need read/write in the same
+session but still want an extra layer of protection against accidental writes.
 
 ## 📦 MCP Resources
 

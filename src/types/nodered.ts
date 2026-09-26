@@ -8,6 +8,8 @@ export interface NodeRedFlow {
   label?: string;
   nodes: NodeRedNode[];
   configs?: NodeRedConfig[];
+  /** Read-only: shared config nodes (no `z`) this flow uses. Never written back. */
+  globalConfigs?: NodeRedConfig[];
   subflows?: NodeRedSubflow[];
   disabled?: boolean;
   info?: string;

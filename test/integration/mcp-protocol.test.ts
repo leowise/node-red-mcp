@@ -20,6 +20,7 @@ const { mockNodeRedClient, mockSSEHandler } = vi.hoisted(() => ({
     getNormalizedFlows: vi.fn(),
     getFlowSummaries: vi.fn(),
     getFlow: vi.fn(),
+    getFlowWithGlobalConfigs: vi.fn(),
     createFlow: vi.fn(),
     updateFlow: vi.fn(),
     deleteFlow: vi.fn(),
@@ -82,6 +83,10 @@ describe('MCP Protocol Integration', () => {
     mockNodeRedClient.getNormalizedFlows.mockResolvedValue(mockFlows);
     mockNodeRedClient.getFlowSummaries.mockResolvedValue([]);
     mockNodeRedClient.getFlow.mockResolvedValue(mockFlowTab);
+    mockNodeRedClient.getFlowWithGlobalConfigs.mockResolvedValue({
+      ...mockFlowTab,
+      globalConfigs: [],
+    });
     mockNodeRedClient.createFlow.mockResolvedValue(mockCreatedFlow);
     mockNodeRedClient.updateFlow.mockResolvedValue(mockFlowTab);
     mockNodeRedClient.deleteFlow.mockResolvedValue(undefined);
@@ -147,7 +152,7 @@ describe('MCP Protocol Integration', () => {
         const result = await mcpServer.callTool('get_flow', { flowId: 'flow-1' });
 
         expect(result.content).toBeDefined();
-        expect(mockNodeRedClient.getFlow).toHaveBeenCalledWith('flow-1');
+        expect(mockNodeRedClient.getFlowWithGlobalConfigs).toHaveBeenCalledWith('flow-1');
       });
     });
 

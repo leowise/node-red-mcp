@@ -3,8 +3,6 @@
 # 2025 Development & Production Configuration
 #
 
-version: '3.8'
-
 # Common environment variables
 x-common-env: &common-env
   NODE_ENV: development

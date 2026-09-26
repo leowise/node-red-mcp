@@ -42,8 +42,8 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:debug": "playwright test --debug",
-    "docker:build": "docker build -t mcp-nodered-server .",
-    "docker:run": "docker run -p 3000:3000 mcp-nodered-server",
+    "docker:build": "docker build -f docker/Dockerfile -t mcp-nodered-server .",
+    "docker:run": "docker run --rm -e MCP_TRANSPORT=http -e HTTP_ENABLED=true -p 3000:3000 mcp-nodered-server",
     "prepare": "husky"
   },
   "keywords": [

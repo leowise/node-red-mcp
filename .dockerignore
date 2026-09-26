@@ -1,0 +1,12 @@
+.git
+.github
+.env*
+.yarn/install-state.gz
+coverage
+dist
+docs
+e2e
+memory-bank
+node_modules
+test
+tests

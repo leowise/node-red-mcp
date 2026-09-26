@@ -8,6 +8,7 @@ import axios, { AxiosInstance, AxiosResponse, AxiosError } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 
 import {
+  NodeRedConfig,
   NodeRedFlow,
   NodeRedFlowRecord,
   NodeRedFlowSummary,
@@ -27,7 +28,7 @@ import {
   getNodeRedAuthScope,
 } from '../utils/auth.js';
 import { handleNodeRedError } from '../utils/error-handling.js';
-import { normalizeFlowRecords } from '../utils/flow-normalizer.js';
+import { findReferencedGlobalConfigs, normalizeFlowRecords } from '../utils/flow-normalizer.js';
 import { CircuitBreaker, retryWithCircuitBreaker, type RetryOptions } from '../utils/retry.js';
 
 export interface NodeRedAPIConfig {
@@ -68,7 +69,10 @@ const SAFE_SEGMENT_RE = /^[A-Za-z0-9_.-]+$/;
 const SAFE_LIBRARY_PATH_RE = /^[A-Za-z0-9_./-]+$/;
 
 export class NodeRedCapabilityUnavailableError extends Error {
-  constructor(public readonly capability: string, public readonly endpoint: string) {
+  constructor(
+    public readonly capability: string,
+    public readonly endpoint: string
+  ) {
     super(`Node-RED capability '${capability}' is unavailable: ${endpoint} is not supported`);
     this.name = 'NodeRedCapabilityUnavailableError';
   }
@@ -76,8 +80,7 @@ export class NodeRedCapabilityUnavailableError extends Error {
 
 function isUnsupportedEndpoint(error: unknown): boolean {
   return (
-    axios.isAxiosError(error) &&
-    (error.response?.status === 404 || error.response?.status === 405)
+    axios.isAxiosError(error) && (error.response?.status === 404 || error.response?.status === 405)
   );
 }
 
@@ -384,7 +387,9 @@ export class NodeRedAPIClient {
             'Node-RED returned HTML content instead of flow data. Check authentication and endpoint configuration.'
           );
         }
-        throw new Error('Node-RED returned an unexpected response for GET /flows; expected an array.');
+        throw new Error(
+          'Node-RED returned an unexpected response for GET /flows; expected an array.'
+        );
       }
 
       return response.data;
@@ -481,6 +486,17 @@ export class NodeRedAPIClient {
   }
 
   /**
+   * Get a flow plus the shared (global) config nodes it references, which GET /flow/:id omits.
+   */
+  async getFlowWithGlobalConfigs(flowId: string): Promise<NodeRedFlow> {
+    const [flow, records] = await Promise.all([this.getFlow(flowId), this.getFlows()]);
+    return {
+      ...flow,
+      globalConfigs: findReferencedGlobalConfigs(records, flowId) as NodeRedConfig[],
+    };
+  }
+
+  /**
    * Create new flow with automatic unique ID generation
    */
   async createFlow(flowData: Partial<NodeRedFlow>): Promise<NodeRedFlow> {
@@ -505,8 +521,11 @@ export class NodeRedAPIClient {
   /**
    * Update existing flow
    */
-  async updateFlow(flowId: string, flowData: Partial<NodeRedFlow>): Promise<NodeRedFlow> {
+  async updateFlow(flowId: string, requested: Partial<NodeRedFlow>): Promise<NodeRedFlow> {
     this.assertSafeSegment(flowId, 'flowId');
+    // globalConfigs is read-only context from getFlowWithGlobalConfigs; PUT would re-scope them to this flow.
+    const flowData: Partial<NodeRedFlow> = { ...requested };
+    delete flowData.globalConfigs;
     try {
       await this.client.put(`/flow/${flowId}`, flowData);
     } catch (error) {
@@ -543,6 +562,73 @@ export class NodeRedAPIClient {
         { cause: error }
       );
     }
+  }
+
+  /**
+   * Change properties of one node (or flow-scoped config node) without resending the flow.
+   */
+  async patchNode(
+    flowId: string,
+    nodeId: string,
+    patch: Record<string, unknown>
+  ): Promise<NodeRedNode> {
+    for (const key of ['id', 'z']) {
+      if (key in patch) throw new Error(`Cannot change '${key}' of a node with patchNode`);
+    }
+
+    const flow = await this.getFlow(flowId);
+    const original =
+      flow.nodes.find(node => node.id === nodeId) ??
+      flow.configs?.find(config => config.id === nodeId);
+    if (!original) {
+      throw new Error(
+        `Node '${nodeId}' not found in flow '${flowId}'. Global config nodes are not part of a flow and cannot be patched here.`
+      );
+    }
+
+    const patched = { ...original, ...patch } as NodeRedNode;
+    const replace = <T extends { id: string }>(items: T[]): T[] =>
+      items.map(item => (item.id === nodeId ? (patched as unknown as T) : item));
+    const updated: Partial<NodeRedFlow> = { ...flow, nodes: replace(flow.nodes) };
+    if (flow.configs) updated.configs = replace(flow.configs);
+
+    await this.updateFlow(flowId, updated);
+    return patched;
+  }
+
+  /**
+   * Fire an inject node once, like clicking its button in the editor.
+   * POST /inject/:id calls receive() on whatever node has that id, so the target is checked first.
+   */
+  async triggerInject(nodeId: string): Promise<{ nodeId: string; flowId: string | undefined }> {
+    this.assertSafeSegment(nodeId, 'nodeId');
+
+    const records = await this.getFlows();
+    const node = records.find(record => record.id === nodeId);
+    if (!node) throw new Error(`Node '${nodeId}' not found`);
+    if (node.type !== 'inject') {
+      throw new Error(`Node '${nodeId}' is a '${node.type}' node, not an inject node`);
+    }
+    if (node.d === true) {
+      throw new Error(`Inject node '${nodeId}' is disabled; enable it before triggering it`);
+    }
+    const flow = records.find(record => record.id === node.z && record.type === 'tab');
+    if (flow?.disabled === true) {
+      throw new Error(`Inject node '${nodeId}' cannot run: flow '${flow.id}' is disabled`);
+    }
+
+    try {
+      await this.client.post(`/inject/${nodeId}`);
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        throw new Error(
+          `Inject node '${nodeId}' is not running in Node-RED (HTTP 404): make sure its flow is deployed and enabled. Inject nodes inside a subflow definition cannot be triggered directly.`,
+          { cause: error }
+        );
+      }
+      handleNodeRedError(error, `triggerInject(${nodeId})`);
+    }
+    return { nodeId, flowId: node.z };
   }
 
   /**

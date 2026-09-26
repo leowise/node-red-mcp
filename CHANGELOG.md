@@ -9,6 +9,36 @@ and this project adheres to
 
 ## [Unreleased] - 2026-09-24
 
+### Added
+
+- **`update_node`**: patch a single node (or flow-scoped config node) without
+  resending the whole flow. The patch is shallow-merged, `id` and `z` cannot be
+  changed, and the write is verified by read-back like `update_flow`.
+- **`trigger_inject`**: fire an inject node once, like clicking its button in
+  the editor. Node-RED's `POST /inject/:id` calls `receive()` on any node with
+  that id, so the target is checked first: it must exist, be an inject node, and
+  neither it nor its flow may be disabled. It is a write tool, so read-only mode
+  blocks it. Verified on Node-RED 1.3.4, 1.3.5, 2.2.3, 3.1.15 and 4.1.15.
+- **`get_debug_output`**: listen to the debug sidebar output for a short window
+  (`durationMs`, default 3s, max 30s), optionally filtered by `nodeId` or
+  `flowId` and capped by `limit`. With `triggerNodeId` it fires an inject once
+  the WebSocket is open, so the inject's output cannot be missed; that part is a
+  write and is refused in read-only mode, while plain listening stays allowed.
+  Verified on Node-RED 1.3.4, 1.3.5, 2.2.3, 3.1.15 and 4.1.15.
+
+### Refactored
+
+- The `/comms` WebSocket handling (auth handshake, batched frames, timeout) that
+  `get_node_errors` used privately now lives in `nodered-comms.ts` and is shared
+  with `get_debug_output`. Behavior of `get_node_errors` is unchanged.
+
+### Changed
+
+- **`get_flow`** now also returns `globalConfigs`: the shared config nodes (no
+  `z`, e.g. a ui_group or MQTT broker) the flow references, which
+  `GET /flow/:id` omits. It is read-only context; `update_flow` drops it before
+  writing so shared config nodes are never re-scoped to the flow.
+
 ### Validated
 
 - Exercised the built MCP server through HTTP and stdio clients against
